@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 # ============================================================
 
 app = FastAPI(
-    title="Misinformation Detection API",
+    title="VeriSense API",
     description="NLP-based misinformation detection API",
     version="2.0.0"
 )

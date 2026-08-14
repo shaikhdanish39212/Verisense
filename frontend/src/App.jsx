@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  ShieldCheck,
   Search,
   Sparkles,
   ArrowRight,
@@ -15,35 +14,48 @@ import {
   Trash2,
   LogIn,
   LogOut,
-  UserPlus,
   User,
-  Menu,
+  Lock,
+  Mail,
+  UserPlus,
 } from "lucide-react";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
+const TOKEN_KEY = "verisense_access_token";
+const USER_KEY = "verisense_user";
 
 function App() {
   // ============================================================
-  // AUTH
+  // AUTHENTICATION
   // ============================================================
 
   const [token, setToken] = useState(
-    () => localStorage.getItem("truthlens_token") || "",
+    () => localStorage.getItem(TOKEN_KEY) || "",
   );
 
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem(USER_KEY);
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const [authMode, setAuthMode] = useState("login");
+  const [showAuth, setShowAuth] = useState(false);
+
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
-  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
 
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
 
+  const isAuthenticated = Boolean(token && user);
+
   // ============================================================
-  // APP STATE
+  // MAIN APP STATE
   // ============================================================
 
   const [text, setText] = useState("");
@@ -55,12 +67,6 @@ function App() {
 
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-
-  const [showClearModal, setShowClearModal] = useState(false);
-  const [clearLoading, setClearLoading] = useState(false);
-
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState("analyze");
 
   // ============================================================
   // MODEL INFORMATION
@@ -91,8 +97,8 @@ function App() {
   // PERFORMANCE DATA
   // ============================================================
 
-  const performanceData = [
-    {
+  const performanceData = {
+    welfake: {
       name: "WELFake — Hybrid SVM",
       dataset: "WELFake Dataset",
       accuracy: "98.65%",
@@ -100,7 +106,8 @@ function App() {
       recall: "98.85%",
       f1: "98.51%",
     },
-    {
+
+    liar: {
       name: "LIAR — SVM",
       dataset: "LIAR Dataset",
       accuracy: "61.17%",
@@ -108,7 +115,7 @@ function App() {
       recall: "81.79%",
       f1: "70.36%",
     },
-  ];
+  };
 
   // ============================================================
   // EXAMPLES
@@ -129,21 +136,46 @@ function App() {
   const examples = selectedModel === "welfake" ? welfakeExamples : liarExamples;
 
   // ============================================================
-  // AUTH HEADERS
+  // AUTH HEADER
   // ============================================================
 
-  const authHeaders = () => ({
-    Authorization: `Bearer ${token}`,
-  });
+  const getAuthHeaders = () => {
+    if (!token) {
+      return {};
+    }
+
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  };
 
   // ============================================================
-  // LOAD CURRENT USER
+  // LOGOUT
   // ============================================================
 
-  const loadCurrentUser = async (savedToken = token) => {
+  const handleLogout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+
+    setToken("");
+    setUser(null);
+
+    setHistory([]);
+    setResult(null);
+    setText("");
+
+    setError("You have been logged out.");
+  };
+
+  // ============================================================
+  // VERIFY EXISTING TOKEN
+  // ============================================================
+
+  const verifySession = async () => {
+    const savedToken = localStorage.getItem(TOKEN_KEY);
+
     if (!savedToken) {
-      setUser(null);
-      return false;
+      return;
     }
 
     try {
@@ -154,196 +186,23 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error("Invalid session");
+        throw new Error("Session expired");
       }
 
       const data = await response.json();
 
+      setToken(savedToken);
       setUser(data.user);
 
-      return true;
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     } catch (err) {
       console.error("Session verification error:", err);
 
-      localStorage.removeItem("truthlens_token");
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+
       setToken("");
       setUser(null);
-
-      return false;
-    }
-  };
-
-  // ============================================================
-  // LOAD HISTORY
-  // ============================================================
-
-  const loadHistory = async (savedToken = token) => {
-    if (!savedToken) {
-      setHistory([]);
-      setHistoryLoading(false);
-      return;
-    }
-
-    try {
-      setHistoryLoading(true);
-
-      const response = await fetch(`${API_BASE_URL}/history`, {
-        headers: {
-          Authorization: `Bearer ${savedToken}`,
-        },
-      });
-
-      if (response.status === 401) {
-        handleLogout(false);
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error("Failed to load history");
-      }
-
-      const data = await response.json();
-
-      setHistory(data.history || []);
-      setError("");
-    } catch (err) {
-      console.error("History loading error:", err);
-      setError("Unable to load prediction history from the server.");
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  // ============================================================
-  // INITIAL SESSION
-  // ============================================================
-
-  useEffect(() => {
-    const initializeApp = async () => {
-      if (!token) return;
-
-      const valid = await loadCurrentUser(token);
-
-      if (valid) {
-        await loadHistory(token);
-      }
-    };
-
-    initializeApp();
-  }, []);
-
-  // ============================================================
-  // ACTIVE NAVIGATION
-  // ============================================================
-
-  useEffect(() => {
-    if (!user) return;
-
-    const sections = [
-      "analyze",
-      "history",
-      "performance",
-      "how-it-works",
-      "about",
-    ];
-
-    const observers = [];
-
-    sections.forEach((id) => {
-      const element = document.getElementById(id);
-
-      if (!element) return;
-
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-              setActiveSection(id);
-            }
-          });
-        },
-        {
-          rootMargin: "-25% 0px -65% 0px",
-        },
-      );
-
-      observer.observe(element);
-      observers.push(observer);
-    });
-
-    return () => {
-      observers.forEach((observer) => observer.disconnect());
-    };
-  }, [user]);
-
-  // ============================================================
-  // NAVIGATION
-  // ============================================================
-
-  const navigateTo = (id) => {
-    setMobileMenuOpen(false);
-
-    document.getElementById(id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  };
-
-  // ============================================================
-  // REGISTER
-  // ============================================================
-
-  const handleRegister = async (event) => {
-    event.preventDefault();
-
-    setAuthError("");
-    setAuthMessage("");
-
-    if (!authEmail.trim()) {
-      setAuthError("Please enter your email address.");
-      return;
-    }
-
-    if (authPassword.length < 8) {
-      setAuthError("Password must contain at least 8 characters.");
-      return;
-    }
-
-    if (authPassword !== authConfirmPassword) {
-      setAuthError("Passwords do not match.");
-      return;
-    }
-
-    try {
-      setAuthLoading(true);
-
-      const response = await fetch(`${API_BASE_URL}/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: authEmail.trim(),
-          password: authPassword,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Registration failed.");
-      }
-
-      setAuthMessage("Account created successfully. You can now login.");
-
-      setAuthMode("login");
-      setAuthPassword("");
-      setAuthConfirmPassword("");
-    } catch (err) {
-      console.error("Registration error:", err);
-      setAuthError(err.message || "Unable to create account.");
-    } finally {
-      setAuthLoading(false);
     }
   };
 
@@ -354,22 +213,16 @@ function App() {
   const handleLogin = async (event) => {
     event.preventDefault();
 
+    if (!authEmail.trim() || !authPassword) {
+      setAuthError("Please enter your email and password.");
+      return;
+    }
+
+    setAuthLoading(true);
     setAuthError("");
     setAuthMessage("");
 
-    if (!authEmail.trim()) {
-      setAuthError("Please enter your email address.");
-      return;
-    }
-
-    if (!authPassword) {
-      setAuthError("Please enter your password.");
-      return;
-    }
-
     try {
-      setAuthLoading(true);
-
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
         headers: {
@@ -384,69 +237,192 @@ function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Login failed.");
+        throw new Error(data.detail || "Invalid email or password.");
       }
 
-      localStorage.setItem("truthlens_token", data.access_token);
+      localStorage.setItem(TOKEN_KEY, data.access_token);
+
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
 
       setToken(data.access_token);
       setUser(data.user);
 
       setAuthEmail("");
       setAuthPassword("");
-      setAuthConfirmPassword("");
       setAuthError("");
       setAuthMessage("");
+
+      setShowAuth(false);
 
       await loadHistory(data.access_token);
     } catch (err) {
       console.error("Login error:", err);
 
-      setAuthError(err.message || "Unable to login.");
+      setAuthError(err.message || "Unable to login. Please try again.");
     } finally {
       setAuthLoading(false);
     }
   };
 
   // ============================================================
-  // LOGOUT
+  // REGISTER
   // ============================================================
 
-  const handleLogout = (showMessage = true) => {
-    localStorage.removeItem("truthlens_token");
+  const handleRegister = async (event) => {
+    event.preventDefault();
 
-    setToken("");
-    setUser(null);
-
-    setHistory([]);
-    setResult(null);
-    setText("");
-    setError("");
-
-    setAuthEmail("");
-    setAuthPassword("");
-    setAuthConfirmPassword("");
-
-    setAuthMode("login");
-    setMobileMenuOpen(false);
-
-    if (showMessage) {
-      setAuthMessage("You have been logged out.");
+    if (!authEmail.trim() || !authPassword) {
+      setAuthError("Please enter your email and password.");
+      return;
     }
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    if (authPassword.length < 8) {
+      setAuthError("Password must contain at least 8 characters.");
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: authEmail.trim(),
+          password: authPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Unable to create account.");
+      }
+
+      setAuthMessage("Account created successfully. You can now login.");
+
+      setAuthMode("login");
+      setAuthPassword("");
+    } catch (err) {
+      console.error("Registration error:", err);
+
+      setAuthError(err.message || "Unable to create account.");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   // ============================================================
-  // ANALYZE
+  // OPEN LOGIN
+  // ============================================================
+
+  const openLogin = () => {
+    setAuthMode("login");
+    setAuthError("");
+    setAuthMessage("");
+    setShowAuth(true);
+  };
+
+  // ============================================================
+  // OPEN REGISTER
+  // ============================================================
+
+  const openRegister = () => {
+    setAuthMode("register");
+    setAuthError("");
+    setAuthMessage("");
+    setShowAuth(true);
+  };
+
+  // ============================================================
+  // CLOSE AUTH
+  // ============================================================
+
+  const closeAuth = () => {
+    if (authLoading) {
+      return;
+    }
+
+    setShowAuth(false);
+    setAuthError("");
+    setAuthMessage("");
+  };
+
+  // ============================================================
+  // LOAD HISTORY
+  // ============================================================
+
+  const loadHistory = async (providedToken = null) => {
+    const activeToken =
+      providedToken || token || localStorage.getItem(TOKEN_KEY);
+
+    if (!activeToken) {
+      setHistory([]);
+      setHistoryLoading(false);
+      return;
+    }
+
+    try {
+      setHistoryLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/history`, {
+        headers: {
+          Authorization: `Bearer ${activeToken}`,
+        },
+      });
+
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error("Failed to load history");
+      }
+
+      const data = await response.json();
+
+      setHistory(data.history || []);
+      setError("");
+    } catch (err) {
+      console.error("History loading error:", err);
+
+      setError("Unable to load prediction history from the server.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // ============================================================
+  // INITIAL SESSION
+  // ============================================================
+
+  useEffect(() => {
+    verifySession();
+  }, []);
+
+  // ============================================================
+  // LOAD HISTORY AFTER AUTHENTICATION
+  // ============================================================
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadHistory();
+    }
+  }, [isAuthenticated]);
+
+  // ============================================================
+  // ANALYZE TEXT
   // ============================================================
 
   const handleAnalyze = async () => {
-    if (!token) {
+    if (!isAuthenticated) {
       setError("Please login before analyzing text.");
+      openLogin();
       return;
     }
 
@@ -464,24 +440,24 @@ function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders(),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
-          text: text.trim(),
+          text: text,
         }),
       });
 
       if (response.status === 401) {
-        handleLogout(false);
+        handleLogout();
         setError("Your session has expired. Please login again.");
         return;
       }
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.detail || "Prediction request failed.");
+        throw new Error("Prediction request failed");
       }
+
+      const data = await response.json();
 
       if (data.prediction === -1) {
         setError("Please enter some valid text before analyzing.");
@@ -490,7 +466,7 @@ function App() {
 
       setResult(data);
 
-      await loadHistory(token);
+      await loadHistory();
     } catch (err) {
       console.error("Prediction error:", err);
 
@@ -513,7 +489,7 @@ function App() {
   };
 
   // ============================================================
-  // EXAMPLE
+  // USE EXAMPLE
   // ============================================================
 
   const handleExample = (example) => {
@@ -521,7 +497,10 @@ function App() {
     setResult(null);
     setError("");
 
-    navigateTo("analyze");
+    document.getElementById("analyze")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   };
 
   // ============================================================
@@ -535,49 +514,51 @@ function App() {
   };
 
   // ============================================================
-  // CLEAR HISTORY MODAL
+  // CLEAR ALL HISTORY
   // ============================================================
 
-  const openClearHistoryModal = () => {
-    if (history.length === 0) return;
+  const clearHistory = async () => {
+    if (!isAuthenticated) {
+      openLogin();
+      return;
+    }
 
-    setShowClearModal(true);
-  };
+    if (history.length === 0) {
+      return;
+    }
 
-  const confirmClearHistory = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to permanently delete all prediction history?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
-      setClearLoading(true);
       setError("");
 
       const response = await fetch(`${API_BASE_URL}/history`, {
         method: "DELETE",
         headers: {
-          ...authHeaders(),
+          ...getAuthHeaders(),
         },
       });
 
       if (response.status === 401) {
-        setShowClearModal(false);
-        handleLogout(false);
-        setError("Your session has expired. Please login again.");
+        handleLogout();
         return;
       }
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-
-        throw new Error(data.detail || "Failed to clear history.");
+        throw new Error("Failed to clear history");
       }
 
       setHistory([]);
-      setResult(null);
-      setShowClearModal(false);
     } catch (err) {
       console.error("Clear history error:", err);
 
       setError("Unable to clear prediction history from the server.");
-    } finally {
-      setClearLoading(false);
     }
   };
 
@@ -593,33 +574,42 @@ function App() {
     setResult(null);
     setError("");
 
-    navigateTo("analyze");
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   // ============================================================
-  // DELETE HISTORY ITEM
+  // DELETE SINGLE HISTORY ITEM
   // ============================================================
 
   const deleteHistoryItem = async (id) => {
+    if (!isAuthenticated) {
+      openLogin();
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/history/${id}`, {
         method: "DELETE",
         headers: {
-          ...authHeaders(),
+          ...getAuthHeaders(),
         },
       });
 
       if (response.status === 401) {
-        handleLogout(false);
-        setError("Your session has expired. Please login again.");
+        handleLogout();
         return;
       }
 
       if (!response.ok) {
-        throw new Error("Failed to delete history item.");
+        throw new Error("Failed to delete history item");
       }
 
-      setHistory((previous) => previous.filter((item) => item.id !== id));
+      setHistory((previousHistory) =>
+        previousHistory.filter((item) => item.id !== id),
+      );
     } catch (err) {
       console.error("Delete history error:", err);
 
@@ -628,168 +618,19 @@ function App() {
   };
 
   // ============================================================
-  // RESULT
+  // PREDICTION STATUS
   // ============================================================
 
   const isFake = result?.prediction === 0;
 
+  // ============================================================
+  // CONFIDENCE
+  // ============================================================
+
   const confidence = result?.confidence ? Number(result.confidence) * 100 : 0;
 
   // ============================================================
-  // AUTH SCREEN
-  // ============================================================
-
-  if (!token || !user) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-white">
-        <nav className="border-b border-white/10 bg-slate-950/95">
-          <div className="mx-auto flex max-w-7xl items-center px-4 py-4 sm:px-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/20">
-                <ShieldCheck size={22} />
-              </div>
-
-              <div>
-                <span className="block text-lg font-bold">TruthLens</span>
-
-                <span className="hidden text-[10px] uppercase tracking-[0.2em] text-slate-500 sm:block">
-                  NLP Intelligence
-                </span>
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        <main className="flex min-h-[calc(100vh-73px)] items-center justify-center px-4 py-12">
-          <div className="w-full max-w-md">
-            <div className="mb-8 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 shadow-lg shadow-blue-600/20">
-                {authMode === "login" ? (
-                  <LogIn size={25} />
-                ) : (
-                  <UserPlus size={25} />
-                )}
-              </div>
-
-              <h1 className="mt-6 text-3xl font-bold">
-                {authMode === "login" ? "Welcome back" : "Create your account"}
-              </h1>
-
-              <p className="mt-2 text-sm text-slate-500">
-                {authMode === "login"
-                  ? "Login to continue using TruthLens."
-                  : "Create an account to save your prediction history."}
-              </p>
-            </div>
-
-            <form
-              onSubmit={authMode === "login" ? handleLogin : handleRegister}
-              className="rounded-3xl border border-white/10 bg-white/[0.035] p-6 shadow-2xl sm:p-8"
-            >
-              {authMessage && (
-                <div className="mb-5 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-sm text-emerald-400">
-                  {authMessage}
-                </div>
-              )}
-
-              {authError && (
-                <div className="mb-5 flex gap-3 rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-sm text-red-300">
-                  <AlertTriangle size={18} className="shrink-0" />
-                  <span>{authError}</span>
-                </div>
-              )}
-
-              <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500">
-                Email
-              </label>
-
-              <div className="relative">
-                <User
-                  size={17}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"
-                />
-
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full rounded-xl border border-white/10 bg-slate-950 px-11 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10"
-                />
-              </div>
-
-              <label className="mb-2 mt-5 block text-xs font-medium uppercase tracking-wider text-slate-500">
-                Password
-              </label>
-
-              <input
-                type="password"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10"
-              />
-
-              {authMode === "register" && (
-                <>
-                  <label className="mb-2 mt-5 block text-xs font-medium uppercase tracking-wider text-slate-500">
-                    Confirm Password
-                  </label>
-
-                  <input
-                    type="password"
-                    value={authConfirmPassword}
-                    onChange={(e) => setAuthConfirmPassword(e.target.value)}
-                    placeholder="Confirm your password"
-                    className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10"
-                  />
-                </>
-              )}
-
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3.5 text-sm font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-600"
-              >
-                {authMode === "login" ? (
-                  <LogIn size={17} />
-                ) : (
-                  <UserPlus size={17} />
-                )}
-
-                {authLoading
-                  ? "Please wait..."
-                  : authMode === "login"
-                    ? "Login"
-                    : "Create Account"}
-              </button>
-
-              <div className="mt-6 text-center text-sm text-slate-500">
-                {authMode === "login"
-                  ? "Don't have an account?"
-                  : "Already have an account?"}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode(authMode === "login" ? "register" : "login");
-                    setAuthError("");
-                    setAuthMessage("");
-                  }}
-                  className="ml-2 font-medium text-blue-400 hover:text-blue-300"
-                >
-                  {authMode === "login" ? "Register" : "Login"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ============================================================
-  // MAIN APP
+  // UI
   // ============================================================
 
   return (
@@ -799,136 +640,99 @@ function App() {
       ====================================================== */}
 
       <nav className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <button
-            type="button"
-            onClick={() =>
-              window.scrollTo({
-                top: 0,
-                behavior: "smooth",
-              })
-            }
-            className="flex items-center gap-3"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/20">
-              <ShieldCheck size={22} />
-            </div>
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+          {/* LOGO */}
 
-            <div className="text-left">
+          <a href="#" className="flex min-w-0 items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="VeriSense"
+              className="h-10 w-10 shrink-0 rounded-full object-contain overflow-hidden"
+            />
+
+            <div className="min-w-0">
               <span className="block text-lg font-bold tracking-tight">
-                TruthLens
+                <span className="text-white">Veri</span>
+                <span className="text-blue-400">Sense</span>
               </span>
 
               <span className="hidden text-[10px] uppercase tracking-[0.2em] text-slate-500 sm:block">
-                NLP Intelligence
+                NLP · Detect · Verify
               </span>
             </div>
-          </button>
+          </a>
 
-          {/* DESKTOP NAV */}
+          {/* NAVIGATION */}
 
-          <div className="hidden items-center gap-1 lg:flex">
-            {[
-              ["analyze", "Analyze"],
-              ["history", "History"],
-              ["performance", "Performance"],
-              ["how-it-works", "How It Works"],
-              ["about", "About"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => navigateTo(id)}
-                className={`rounded-lg px-3 py-2 text-sm transition ${
-                  activeSection === id
-                    ? "bg-blue-500/10 text-blue-400"
-                    : "text-slate-400 hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="hidden items-center gap-7 text-sm text-slate-400 lg:flex">
+            <a href="#analyze" className="transition hover:text-white">
+              Analyze
+            </a>
+
+            <a href="#history" className="transition hover:text-white">
+              History
+            </a>
+
+            <a href="#performance" className="transition hover:text-white">
+              Performance
+            </a>
+
+            <a href="#how-it-works" className="transition hover:text-white">
+              How It Works
+            </a>
+
+            <a href="#about" className="transition hover:text-white">
+              About
+            </a>
           </div>
 
-          {/* RIGHT SIDE */}
+          {/* AUTH / SYSTEM */}
 
           <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-full border border-blue-400/15 bg-blue-400/5 px-3 py-1.5 text-xs text-blue-300 xl:flex">
-              <User size={12} />
-              {user.email}
-            </div>
+            {isAuthenticated ? (
+              <>
+                {/* USER */}
 
-            <button
-              type="button"
-              onClick={() => handleLogout(true)}
-              className="hidden items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-400 transition hover:border-red-400/20 hover:text-red-400 sm:flex"
-            >
-              <LogOut size={14} />
-              Logout
-            </button>
+                <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300 xl:flex">
+                  <User size={13} className="text-blue-400" />
 
-            <div className="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-1.5 text-xs text-emerald-400 xl:flex">
+                  <span className="max-w-35 truncate">{user?.email}</span>
+                </div>
+
+                {/* LOGOUT */}
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-400 transition hover:border-red-400/30 hover:text-red-400"
+                >
+                  <LogOut size={14} />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+              </>
+            ) : (
+              <>
+                {/* LOGIN */}
+
+                <button
+                  type="button"
+                  onClick={openLogin}
+                  className="flex items-center gap-2 rounded-xl border border-blue-400/20 bg-blue-400/10 px-3 py-2 text-xs font-medium text-blue-300 transition hover:bg-blue-400/15 hover:text-blue-200"
+                >
+                  <LogIn size={14} />
+                  Login
+                </button>
+              </>
+            )}
+
+            {/* SYSTEM */}
+
+            <div className="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-400 sm:flex">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
               System Ready
             </div>
-
-            {/* MOBILE MENU BUTTON */}
-
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((previous) => !previous)}
-              className="rounded-xl border border-white/10 p-2 text-slate-400 hover:bg-white/5 hover:text-white lg:hidden"
-              aria-label="Open navigation menu"
-            >
-              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
           </div>
         </div>
-
-        {/* MOBILE MENU */}
-
-        {mobileMenuOpen && (
-          <div className="border-t border-white/10 bg-slate-950/98 px-4 py-4 lg:hidden">
-            <div className="mx-auto max-w-7xl space-y-1">
-              {[
-                ["analyze", "Analyze"],
-                ["history", "History"],
-                ["performance", "Performance"],
-                ["how-it-works", "How It Works"],
-                ["about", "About"],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => navigateTo(id)}
-                  className={`block w-full rounded-xl px-4 py-3 text-left text-sm ${
-                    activeSection === id
-                      ? "bg-blue-500/10 text-blue-400"
-                      : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-
-              <div className="my-3 h-px bg-white/10" />
-
-              <div className="flex items-center gap-2 px-4 py-2 text-xs text-slate-500">
-                <User size={13} />
-                {user.email}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleLogout(true)}
-                className="flex w-full items-center gap-2 rounded-xl px-4 py-3 text-left text-sm text-red-400 hover:bg-red-400/5"
-              >
-                <LogOut size={15} />
-                Logout
-              </button>
-            </div>
-          </div>
-        )}
       </nav>
 
       <main>
@@ -937,9 +741,9 @@ function App() {
         ==================================================== */}
 
         <section className="relative overflow-hidden">
-          <div className="pointer-events-none absolute left-1/2 -top-24 h-125 w-175 max-w-[90vw] -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
+          <div className="pointer-events-none absolute left-1/2 -top-37.5 h-125 w-175 max-w-[90vw] -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
 
-          <div className="relative mx-auto max-w-5xl px-4 pb-14 pt-16 text-center sm:px-6 sm:pt-24 lg:pt-28">
+          <div className="relative mx-auto max-w-5xl px-4 pb-16 pt-16 text-center sm:px-6 sm:pt-28">
             <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-xs font-medium text-blue-300">
               <Sparkles size={14} />
               NLP-Powered Misinformation Detection
@@ -956,40 +760,6 @@ function App() {
               Analyze news claims and textual content using natural language
               processing and machine learning.
             </p>
-
-            <button
-              type="button"
-              onClick={() => navigateTo("analyze")}
-              className="group mt-8 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 hover:shadow-blue-600/30"
-            >
-              <Search size={17} />
-              Start Analyzing
-              <ArrowRight
-                size={17}
-                className="transition-transform group-hover:translate-x-1"
-              />
-            </button>
-
-            {/* QUICK STATS */}
-
-            <div className="mx-auto mt-12 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-xl">
-                <p className="text-2xl font-bold text-blue-400">98.65%</p>
-                <p className="mt-1 text-xs text-slate-500">WELFake Accuracy</p>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-xl">
-                <p className="text-2xl font-bold text-cyan-400">61.17%</p>
-                <p className="mt-1 text-xs text-slate-500">LIAR Accuracy</p>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-xl">
-                <p className="text-2xl font-bold text-emerald-400">2</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  ML Detection Models
-                </p>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -1060,7 +830,11 @@ function App() {
                       setError("");
                     }}
                     maxLength={2000}
-                    placeholder="Paste a news claim or textual content here..."
+                    placeholder={
+                      isAuthenticated
+                        ? "Paste a news claim or textual content here..."
+                        : "Login to analyze news claims..."
+                    }
                     className="min-h-52 w-full resize-none rounded-2xl border border-white/10 bg-slate-950/70 p-5 pr-12 text-sm leading-7 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10"
                   />
 
@@ -1069,6 +843,7 @@ function App() {
                       type="button"
                       onClick={clearText}
                       className="absolute right-4 top-4 rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white"
+                      aria-label="Clear text"
                     >
                       <X size={16} />
                     </button>
@@ -1093,7 +868,11 @@ function App() {
                 >
                   <Search size={17} />
 
-                  {loading ? "Analyzing..." : "Analyze Text"}
+                  {loading
+                    ? "Analyzing..."
+                    : isAuthenticated
+                      ? "Analyze Text"
+                      : "Login to Analyze"}
 
                   {!loading && (
                     <ArrowRight
@@ -1133,16 +912,21 @@ function App() {
               </div>
             </div>
 
-            {/* ERROR */}
+            {/* ==================================================
+                ERROR
+            ================================================== */}
 
             {error && (
               <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-400/5 p-5 text-sm text-red-300">
                 <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+
                 <p>{error}</p>
               </div>
             )}
 
-            {/* RESULT */}
+            {/* ==================================================
+                RESULT
+            ================================================== */}
 
             {result && (
               <div
@@ -1258,6 +1042,7 @@ function App() {
                     <p className="text-[10px] uppercase tracking-wider text-slate-600">
                       Model
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-300">
                       {currentModel.name}
                     </p>
@@ -1267,6 +1052,7 @@ function App() {
                     <p className="text-[10px] uppercase tracking-wider text-slate-600">
                       Dataset
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-300">
                       {currentModel.dataset}
                     </p>
@@ -1276,6 +1062,7 @@ function App() {
                     <p className="text-[10px] uppercase tracking-wider text-slate-600">
                       Model Accuracy
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-300">
                       {currentModel.accuracy}
                     </p>
@@ -1313,10 +1100,10 @@ function App() {
                   </p>
                 </div>
 
-                {history.length > 0 && (
+                {isAuthenticated && history.length > 0 && (
                   <button
                     type="button"
-                    onClick={openClearHistoryModal}
+                    onClick={clearHistory}
                     className="flex shrink-0 items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-500 transition hover:border-red-400/20 hover:text-red-400"
                   >
                     <Trash2 size={14} />
@@ -1325,16 +1112,40 @@ function App() {
                 )}
               </div>
 
-              {historyLoading && (
+              {!isAuthenticated && (
+                <div className="rounded-2xl border border-dashed border-blue-400/20 bg-blue-400/5 p-10 text-center">
+                  <Lock size={28} className="mx-auto text-blue-400" />
+
+                  <h3 className="mt-4 text-sm font-semibold text-slate-300">
+                    Login required
+                  </h3>
+
+                  <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-600">
+                    Login to view and manage your personal prediction history.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={openLogin}
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-500"
+                  >
+                    <LogIn size={14} />
+                    Login
+                  </button>
+                </div>
+              )}
+
+              {isAuthenticated && historyLoading && (
                 <div className="rounded-2xl border border-white/10 bg-white/2 p-10 text-center">
                   <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-blue-400" />
+
                   <p className="mt-4 text-xs text-slate-600">
                     Loading prediction history...
                   </p>
                 </div>
               )}
 
-              {!historyLoading && history.length === 0 && (
+              {isAuthenticated && !historyLoading && history.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-white/2 p-10 text-center">
                   <Clock3 size={28} className="mx-auto text-slate-700" />
 
@@ -1349,7 +1160,7 @@ function App() {
                 </div>
               )}
 
-              {!historyLoading && history.length > 0 && (
+              {isAuthenticated && !historyLoading && history.length > 0 && (
                 <div className="space-y-3">
                   {history.map((item) => {
                     const itemIsFake = Number(item.prediction) === 0;
@@ -1415,7 +1226,7 @@ function App() {
                               <button
                                 type="button"
                                 onClick={() => useHistoryItem(item)}
-                                className="text-xs font-medium text-blue-400 hover:text-blue-300"
+                                className="text-xs font-medium text-blue-400 transition hover:text-blue-300"
                               >
                                 Use this text again →
                               </button>
@@ -1423,7 +1234,7 @@ function App() {
                               <button
                                 type="button"
                                 onClick={() => deleteHistoryItem(item.id)}
-                                className="flex items-center gap-1 text-xs text-slate-600 hover:text-red-400"
+                                className="flex items-center gap-1 text-xs text-slate-600 transition hover:text-red-400"
                               >
                                 <Trash2 size={13} />
                                 Delete
@@ -1477,7 +1288,7 @@ function App() {
                 </div>
 
                 <div className="grid gap-6 lg:grid-cols-2">
-                  {performanceData.map((model) => (
+                  {Object.values(performanceData).map((model) => (
                     <div
                       key={model.name}
                       className="rounded-3xl border border-white/10 bg-white/2.5 p-6 shadow-xl backdrop-blur-xl sm:p-7"
@@ -1488,7 +1299,7 @@ function App() {
                             Detection Model
                           </p>
 
-                          <h3 className="mt-2 text-xl font-bold">
+                          <h3 className="mt-2 text-xl font-bold text-white">
                             {model.name}
                           </h3>
 
@@ -1503,25 +1314,41 @@ function App() {
                       </div>
 
                       <div className="mt-7 grid grid-cols-2 gap-3">
-                        {[
-                          ["Accuracy", model.accuracy],
-                          ["Precision", model.precision],
-                          ["Recall", model.recall],
-                          ["F1 Score", model.f1],
-                        ].map(([label, value]) => (
-                          <div
-                            key={label}
-                            className="rounded-xl border border-white/5 bg-slate-950/60 p-4"
-                          >
-                            <p className="text-[10px] uppercase tracking-wider text-slate-600">
-                              {label}
-                            </p>
+                        <div className="rounded-xl border border-white/5 bg-slate-950/60 p-4">
+                          <p className="text-[10px] uppercase tracking-wider text-slate-600">
+                            Accuracy
+                          </p>
+                          <p className="mt-2 text-2xl font-bold text-blue-400">
+                            {model.accuracy}
+                          </p>
+                        </div>
 
-                            <p className="mt-2 text-2xl font-bold text-slate-300">
-                              {value}
-                            </p>
-                          </div>
-                        ))}
+                        <div className="rounded-xl border border-white/5 bg-slate-950/60 p-4">
+                          <p className="text-[10px] uppercase tracking-wider text-slate-600">
+                            Precision
+                          </p>
+                          <p className="mt-2 text-2xl font-bold text-slate-300">
+                            {model.precision}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-white/5 bg-slate-950/60 p-4">
+                          <p className="text-[10px] uppercase tracking-wider text-slate-600">
+                            Recall
+                          </p>
+                          <p className="mt-2 text-2xl font-bold text-slate-300">
+                            {model.recall}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-white/5 bg-slate-950/60 p-4">
+                          <p className="text-[10px] uppercase tracking-wider text-slate-600">
+                            F1 Score
+                          </p>
+                          <p className="mt-2 text-2xl font-bold text-slate-300">
+                            {model.f1}
+                          </p>
+                        </div>
                       </div>
 
                       <div className="mt-6">
@@ -1537,7 +1364,7 @@ function App() {
 
                         <div className="h-2 overflow-hidden rounded-full bg-slate-800">
                           <div
-                            className="h-full rounded-full bg-blue-500"
+                            className="h-full rounded-full bg-blue-500 transition-all duration-700"
                             style={{
                               width: model.accuracy,
                             }}
@@ -1586,52 +1413,56 @@ function App() {
             </div>
 
             <div className="grid gap-5 md:grid-cols-3">
-              {[
-                {
-                  icon: FileText,
-                  step: "STEP 01",
-                  title: "Text Processing",
-                  description:
-                    "The submitted content is cleaned and prepared using natural language processing techniques.",
-                },
-                {
-                  icon: Brain,
-                  step: "STEP 02",
-                  title: "ML Classification",
-                  description:
-                    "Text features are passed to a trained machine learning classification model.",
-                },
-                {
-                  icon: BarChart3,
-                  step: "STEP 03",
-                  title: "Prediction",
-                  description:
-                    "The model returns a classification and confidence score for the submitted content.",
-                },
-              ].map((item) => {
-                const Icon = item.icon;
+              <div className="group rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20">
+                <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+                  <FileText size={22} />
+                </div>
 
-                return (
-                  <div
-                    key={item.step}
-                    className="rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20"
-                  >
-                    <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-                      <Icon size={22} />
-                    </div>
+                <p className="mb-2 text-xs font-semibold text-blue-400">
+                  STEP 01
+                </p>
 
-                    <p className="mb-2 text-xs font-semibold text-blue-400">
-                      {item.step}
-                    </p>
+                <h3 className="text-lg font-semibold">Text Processing</h3>
 
-                    <h3 className="text-lg font-semibold">{item.title}</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                  The submitted content is cleaned and prepared using natural
+                  language processing techniques.
+                </p>
+              </div>
 
-                    <p className="mt-3 text-sm leading-6 text-slate-500">
-                      {item.description}
-                    </p>
-                  </div>
-                );
-              })}
+              <div className="group rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20">
+                <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+                  <Brain size={22} />
+                </div>
+
+                <p className="mb-2 text-xs font-semibold text-blue-400">
+                  STEP 02
+                </p>
+
+                <h3 className="text-lg font-semibold">ML Classification</h3>
+
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                  Text features are passed to a trained machine learning
+                  classification model.
+                </p>
+              </div>
+
+              <div className="group rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20">
+                <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+                  <BarChart3 size={22} />
+                </div>
+
+                <p className="mb-2 text-xs font-semibold text-blue-400">
+                  STEP 03
+                </p>
+
+                <h3 className="text-lg font-semibold">Prediction</h3>
+
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                  The model returns a classification and confidence score for
+                  the submitted content.
+                </p>
+              </div>
             </div>
           </div>
         </section>
@@ -1642,8 +1473,12 @@ function App() {
 
         <section id="about" className="scroll-mt-24 px-4 py-24 sm:px-6">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-              <ShieldCheck size={23} />
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-500/10 overflow-hidden">
+              <img
+                src="/logo.png"
+                alt="VeriSense"
+                className="h-10 w-10 rounded-full object-contain"
+              />
             </div>
 
             <p className="mt-6 text-xs font-semibold uppercase tracking-[0.2em] text-blue-400">
@@ -1667,135 +1502,196 @@ function App() {
           FOOTER
       ====================================================== */}
 
-      <footer className="border-t border-white/10 px-4 py-10 sm:px-6">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600/10 text-blue-400">
-              <ShieldCheck size={18} />
-            </div>
+      <footer className="border-t border-white/10 px-4 py-8 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <img
+              src="/logo.png"
+              alt="VeriSense"
+              className="h-6 w-6 rounded-full object-contain overflow-hidden"
+            />
 
-            <div>
-              <p className="text-sm font-semibold text-slate-300">TruthLens</p>
-
-              <p className="text-xs text-slate-600">NLP Intelligence</p>
-            </div>
+            <span>VeriSense</span>
           </div>
 
-          <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
-            <button
-              onClick={() => navigateTo("analyze")}
-              className="hover:text-blue-400"
-            >
-              Analyze
-            </button>
-
-            <button
-              onClick={() => navigateTo("history")}
-              className="hover:text-blue-400"
-            >
-              History
-            </button>
-
-            <button
-              onClick={() => navigateTo("performance")}
-              className="hover:text-blue-400"
-            >
-              Performance
-            </button>
-
-            <button
-              onClick={() => navigateTo("about")}
-              className="hover:text-blue-400"
-            >
-              About
-            </button>
-          </div>
-
-          <p className="text-xs text-slate-600">© 2026 TruthLens</p>
-        </div>
-
-        <div className="mx-auto mt-6 max-w-6xl border-t border-white/5 pt-6 text-center text-xs text-slate-700">
-          Misinformation Detection using NLP
+          <p>Misinformation Detection using NLP</p>
         </div>
       </footer>
 
       {/* ======================================================
-          CUSTOM CLEAR HISTORY MODAL
+          LOGIN / REGISTER MODAL
       ====================================================== */}
 
-      {showClearModal && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div
-            className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl shadow-black/50"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="clear-history-title"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-400/10 text-red-400">
-                  <Trash2 size={20} />
-                </div>
+      {showAuth && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 backdrop-blur-md"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeAuth();
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl sm:p-8">
+            {/* HEADER */}
 
-                <div>
-                  <h2
-                    id="clear-history-title"
-                    className="text-lg font-bold text-white"
-                  >
-                    Delete Prediction History
-                  </h2>
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/20">
+                    {authMode === "login" ? (
+                      <LogIn size={20} />
+                    ) : (
+                      <UserPlus size={20} />
+                    )}
+                  </div>
 
-                  <p className="mt-1 text-xs text-slate-500">
-                    Permanent action
-                  </p>
+                  <div>
+                    <h2 className="text-xl font-bold">
+                      {authMode === "login" ? "Welcome back" : "Create account"}
+                    </h2>
+
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {authMode === "login"
+                        ? "Login to continue to VeriSense."
+                        : "Create your VeriSense account."}
+                    </p>
+                  </div>
                 </div>
               </div>
 
               <button
                 type="button"
-                onClick={() => setShowClearModal(false)}
-                disabled={clearLoading}
-                className="rounded-lg p-2 text-slate-600 transition hover:bg-white/5 hover:text-white"
+                onClick={closeAuth}
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-red-400/10 bg-red-400/4 p-4">
-              <p className="text-sm leading-6 text-slate-400">
-                Are you sure you want to permanently delete{" "}
-                <span className="font-semibold text-slate-200">
-                  all prediction history
-                </span>
-                ?
-              </p>
+            {/* FORM */}
 
-              <p className="mt-2 text-xs leading-5 text-slate-600">
-                This action cannot be undone. All saved predictions for your
-                account will be removed from PostgreSQL.
-              </p>
-            </div>
+            <form
+              onSubmit={authMode === "login" ? handleLogin : handleRegister}
+              className="mt-7 space-y-5"
+            >
+              {/* EMAIL */}
 
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <div>
+                <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Email address
+                </label>
+
+                <div className="relative">
+                  <Mail
+                    size={16}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"
+                  />
+
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-700 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10"
+                  />
+                </div>
+              </div>
+
+              {/* PASSWORD */}
+
+              <div>
+                <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Password
+                </label>
+
+                <div className="relative">
+                  <Lock
+                    size={16}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"
+                  />
+
+                  <input
+                    type="password"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder="Enter your password"
+                    autoComplete={
+                      authMode === "login" ? "current-password" : "new-password"
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-700 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10"
+                  />
+                </div>
+
+                {authMode === "register" && (
+                  <p className="mt-2 text-[10px] text-slate-600">
+                    Password must contain at least 8 characters.
+                  </p>
+                )}
+              </div>
+
+              {/* ERROR */}
+
+              {authError && (
+                <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-300">
+                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              {/* SUCCESS */}
+
+              {authMessage && (
+                <div className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-xs text-emerald-300">
+                  <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+
+                  <span>{authMessage}</span>
+                </div>
+              )}
+
+              {/* SUBMIT */}
+
               <button
-                type="button"
-                onClick={() => setShowClearModal(false)}
-                disabled={clearLoading}
-                className="rounded-xl border border-white/10 px-5 py-3 text-sm font-medium text-slate-400 transition hover:bg-white/5 hover:text-white disabled:opacity-50"
+                type="submit"
+                disabled={authLoading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-600"
               >
-                Cancel
-              </button>
+                {authMode === "login" ? (
+                  <LogIn size={16} />
+                ) : (
+                  <UserPlus size={16} />
+                )}
 
-              <button
-                type="button"
-                onClick={confirmClearHistory}
-                disabled={clearLoading}
-                className="flex items-center justify-center gap-2 rounded-xl bg-red-500/90 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Trash2 size={16} />
-
-                {clearLoading ? "Deleting..." : "Delete History"}
+                {authLoading
+                  ? "Please wait..."
+                  : authMode === "login"
+                    ? "Login"
+                    : "Create Account"}
               </button>
+            </form>
+
+            {/* SWITCH */}
+
+            <div className="mt-6 border-t border-white/10 pt-5 text-center">
+              <p className="text-xs text-slate-600">
+                {authMode === "login"
+                  ? "Don't have an account?"
+                  : "Already have an account?"}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode(authMode === "login" ? "register" : "login");
+
+                    setAuthError("");
+                    setAuthMessage("");
+                  }}
+                  className="ml-1 font-medium text-blue-400 transition hover:text-blue-300"
+                >
+                  {authMode === "login" ? "Create one" : "Login"}
+                </button>
+              </p>
             </div>
           </div>
         </div>

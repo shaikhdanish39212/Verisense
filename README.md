@@ -6,10 +6,9 @@
 
 ## 🎯 Features
 
-- **Dual ML Models**: 
+- **Dual ML Models**:
   - **Hybrid SVM** (WELFake): 98.65% accuracy on news articles
   - **LIAR SVM**: 61.17% accuracy on political claims
-  
 - **User Authentication**: Secure JWT-based login/registration system
 - **Prediction History**: Track all past analyses with detailed results
 - **Performance Dashboard**: Real-time statistics and model accuracy metrics
@@ -21,12 +20,14 @@
 ## 🛠️ Tech Stack
 
 ### Frontend
+
 - **React 19** - UI framework
 - **Vite 8** - Fast build tool
 - **Tailwind CSS v4** - Utility-first styling
 - **Lucide React** - Icon library
 
 ### Backend
+
 - **FastAPI** - Modern Python web framework
 - **uvicorn** - ASGI server
 - **PostgreSQL** - Database
@@ -35,6 +36,7 @@
 - **passlib** - Password hashing
 
 ### ML Pipeline
+
 - **scikit-learn SVM** - Support Vector Machines
 - **TF-IDF Vectorizer** - Text feature extraction
 - **joblib** - Model serialization
@@ -62,6 +64,7 @@ cd "Misinformation Detection"
 ### 2️⃣ Backend Setup
 
 #### Create Virtual Environment
+
 ```bash
 cd backend
 python -m venv .venv
@@ -74,12 +77,15 @@ source .venv/bin/activate
 ```
 
 #### Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 #### Configure Environment
+
 Create `.env` file in `backend/` folder:
+
 ```env
 DATABASE_URL=postgresql://postgres:postgres123@localhost:5432/verisense
 JWT_SECRET=verisense_2026_very_long_random_secret
@@ -88,6 +94,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 ```
 
 #### Initialize Database
+
 ```bash
 # Create database (if not exists)
 psql -U postgres -c "CREATE DATABASE verisense;"
@@ -96,6 +103,7 @@ psql -U postgres -c "CREATE DATABASE verisense;"
 ```
 
 #### Run Backend Server
+
 ```bash
 uvicorn main:app --reload --port 8000
 ```
@@ -107,12 +115,14 @@ Backend will be available at: **http://127.0.0.1:8000**
 ### 2️⃣ Frontend Setup
 
 #### Install Dependencies
+
 ```bash
 cd frontend
 npm install
 ```
 
 #### Run Development Server
+
 ```bash
 npm run dev
 ```
@@ -124,6 +134,7 @@ Frontend will be available at: **http://localhost:5173**
 ## 📚 API Documentation
 
 ### Base URL
+
 ```
 http://127.0.0.1:8000
 ```
@@ -131,6 +142,7 @@ http://127.0.0.1:8000
 ### Authentication Endpoints
 
 #### Register User
+
 ```http
 POST /register
 Content-Type: application/json
@@ -142,6 +154,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "message": "User registered successfully",
@@ -153,6 +166,7 @@ Content-Type: application/json
 ```
 
 #### Login
+
 ```http
 POST /login
 Content-Type: application/json
@@ -164,6 +178,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -176,6 +191,7 @@ Content-Type: application/json
 ```
 
 #### Get Current User
+
 ```http
 GET /me
 Authorization: Bearer <token>
@@ -186,6 +202,7 @@ Authorization: Bearer <token>
 ### Prediction Endpoints
 
 #### Predict (WELFake Model)
+
 ```http
 POST /predict
 Authorization: Bearer <token>
@@ -197,6 +214,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "prediction": "fake",
@@ -208,6 +226,7 @@ Content-Type: application/json
 ```
 
 #### Predict (LIAR Model)
+
 ```http
 POST /predict-liar
 Authorization: Bearer <token>
@@ -219,6 +238,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "prediction": "true",
@@ -234,12 +254,14 @@ Content-Type: application/json
 ### History Endpoints
 
 #### Get All Predictions
+
 ```http
 GET /history
 Authorization: Bearer <token>
 ```
 
 **Response:**
+
 ```json
 {
   "predictions": [
@@ -257,6 +279,7 @@ Authorization: Bearer <token>
 ```
 
 #### Delete Prediction
+
 ```http
 DELETE /history/{prediction_id}
 Authorization: Bearer <token>
@@ -268,22 +291,24 @@ Authorization: Bearer <token>
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | - |
-| `JWT_SECRET` | Secret key for JWT signing | - |
-| `JWT_ALGORITHM` | JWT algorithm | HS256 |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry time | 60 |
+| Variable                      | Description                  | Default |
+| ----------------------------- | ---------------------------- | ------- |
+| `DATABASE_URL`                | PostgreSQL connection string | -       |
+| `JWT_SECRET`                  | Secret key for JWT signing   | -       |
+| `JWT_ALGORITHM`               | JWT algorithm                | HS256   |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry time            | 60      |
 
 ### Model Information
 
 #### WELFake Model (Default)
+
 - **Accuracy**: 98.65%
 - **Dataset**: WELFake Dataset
 - **Best for**: News articles, general text
 - **File**: `backend/model/svm_model.joblib`
 
 #### LIAR Model
+
 - **Accuracy**: 61.17%
 - **Dataset**: LIAR Dataset
 - **Best for**: Political claims, speeches
@@ -335,6 +360,7 @@ Misinformation Detection/
 ### 1. Start Services
 
 **Terminal 1 - Backend:**
+
 ```bash
 cd backend
 .venv\Scripts\activate  # Windows
@@ -342,26 +368,31 @@ uvicorn main:app --reload --port 8000
 ```
 
 **Terminal 2 - Frontend:**
+
 ```bash
 cd frontend
 npm run dev
 ```
 
 ### 2. Open Application
+
 Visit: **http://localhost:5173**
 
 ### 3. Register & Login
+
 - Click "Sign Up" to create account
 - Enter email and 8+ character password
 - Login with credentials
 
 ### 4. Analyze Text
+
 - Select model (WELFake or LIAR)
 - Paste text to analyze
 - Click "Analyze"
 - View results and confidence score
 
 ### 5. View History
+
 - Navigate to "History" section
 - See all past predictions
 - Click any prediction to re-analyze
@@ -372,12 +403,14 @@ Visit: **http://localhost:5173**
 ## 🧪 Testing
 
 ### Frontend Build
+
 ```bash
 cd frontend
 npm run build
 ```
 
 ### Backend Health Check
+
 ```bash
 curl http://127.0.0.1:8000/docs
 ```
@@ -398,18 +431,19 @@ This opens FastAPI's interactive Swagger documentation.
 
 ## 📊 Performance
 
-| Metric | Value |
-|---|---|
+| Metric              | Value                      |
+| ------------------- | -------------------------- |
 | Frontend Build Size | ~229 KB (JS) + 35 KB (CSS) |
-| Model Load Time | ~2-3 seconds |
-| Prediction Time | ~50-100 ms |
-| Database Query Time | <50 ms |
+| Model Load Time     | ~2-3 seconds               |
+| Prediction Time     | ~50-100 ms                 |
+| Database Query Time | <50 ms                     |
 
 ---
 
 ## 🐛 Troubleshooting
 
 ### Database Connection Failed
+
 ```bash
 # Check PostgreSQL is running
 psql -U postgres -c "SELECT 1"
@@ -419,11 +453,13 @@ psql -U postgres -c "SELECT 1"
 ```
 
 ### CORS Errors
+
 - Ensure frontend is on `http://localhost:5173`
 - Ensure backend is on `http://127.0.0.1:8000`
 - Check backend `ALLOWED_ORIGINS` in `main.py`
 
 ### Models Not Loading
+
 ```bash
 # Verify model files exist
 ls backend/model/
@@ -431,6 +467,7 @@ ls backend/model/
 ```
 
 ### Port Already in Use
+
 ```bash
 # Change port in command
 uvicorn main:app --reload --port 8001
@@ -441,6 +478,7 @@ uvicorn main:app --reload --port 8001
 ## 📝 Environment Setup Guide
 
 ### Windows
+
 ```powershell
 # Create virtual environment
 python -m venv backend\.venv
@@ -453,6 +491,7 @@ pip install -r backend/requirements.txt
 ```
 
 ### macOS/Linux
+
 ```bash
 # Create virtual environment
 python3 -m venv backend/.venv
@@ -469,6 +508,7 @@ pip install -r backend/requirements.txt
 ## 🚀 Deployment
 
 ### Production Checklist
+
 - [ ] Update `JWT_SECRET` with strong random key
 - [ ] Use PostgreSQL with strong authentication
 - [ ] Set `ALLOWED_ORIGINS` to production domain
@@ -495,6 +535,7 @@ This project is part of MSC Computer Science curriculum.
 ## 📞 Support
 
 For issues or questions:
+
 1. Check [Troubleshooting](#-troubleshooting) section
 2. Review API documentation at `http://127.0.0.1:8000/docs`
 3. Check browser console for frontend errors
@@ -504,6 +545,7 @@ For issues or questions:
 ## 🎓 Educational Value
 
 This project demonstrates:
+
 - ✅ Full-stack web development (React + FastAPI)
 - ✅ Machine learning integration
 - ✅ Database design & management

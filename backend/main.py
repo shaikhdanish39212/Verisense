@@ -5,10 +5,16 @@ from pydantic import BaseModel, Field
 
 import logging
 import re
+import secrets
+import hashlib
+import smtplib
+import ssl
 import joblib
 import os
 import time
 import psycopg2
+
+from email.message import EmailMessage
 
 from pathlib import Path
 from dotenv import load_dotenv
@@ -49,8 +55,9 @@ if extra_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+)(:\d+)?",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -277,9 +284,91 @@ class LoginRequest(BaseModel):
     )
 
 
+class ForgotPasswordRequest(BaseModel):
+
+    email: str = Field(
+        ...,
+        min_length=5,
+        max_length=255
+    )
+
+
+class ResetPasswordRequest(BaseModel):
+
+    token: str = Field(
+        ...,
+        min_length=1,
+        max_length=500
+    )
+
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=128
+    )
+
+
 # ============================================================
-# DATABASE CONNECTION
+# DATABASE CONNECTION & TABLE INITIALIZATION
 # ============================================================
+
+_tables_initialized = False
+
+
+def init_db_tables(connection):
+
+    global _tables_initialized
+
+    if _tables_initialized:
+        return
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS prediction_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    text TEXT NOT NULL,
+                    prediction INTEGER NOT NULL,
+                    confidence DOUBLE PRECISION NOT NULL,
+                    model VARCHAR(100) NOT NULL,
+                    dataset VARCHAR(100) NOT NULL,
+                    model_accuracy VARCHAR(50) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_hash VARCHAR(255) NOT NULL UNIQUE,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    used BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_reset_token_hash ON password_reset_tokens(token_hash);
+                """
+            )
+
+        connection.commit()
+
+        _tables_initialized = True
+
+    except Exception as error:
+
+        logger.warning(
+            "Could not auto-initialize DB tables: %s",
+            error,
+        )
+
 
 def get_db_connection():
 
@@ -298,7 +387,11 @@ def require_db_connection():
 
     try:
 
-        return get_db_connection()
+        conn = get_db_connection()
+
+        init_db_tables(conn)
+
+        return conn
 
     except RuntimeError as error:
 
@@ -725,6 +818,466 @@ def login(
         raise HTTPException(
             status_code=500,
             detail="Unable to login."
+        )
+
+    finally:
+
+        if connection is not None:
+
+            connection.close()
+
+
+# ============================================================
+# EMAIL HELPER
+# ============================================================
+
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER or "noreply@verisense.app")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
+
+def send_reset_password_email(email: str, reset_link: str) -> bool:
+
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+
+        logger.info(
+            "SMTP credentials not fully configured. Password reset link for %s: %s",
+            email,
+            reset_link
+        )
+
+        return False
+
+    try:
+
+        msg = EmailMessage()
+
+        msg["Subject"] = "VeriSense - Reset Your Password"
+
+        msg["From"] = SMTP_FROM_EMAIL
+
+        msg["To"] = email
+
+        msg.set_content(
+            f"Hello,\n\n"
+            f"You requested a password reset for your VeriSense account.\n\n"
+            f"Please click the link below or paste it into your browser to reset your password:\n"
+            f"{reset_link}\n\n"
+            f"This link is valid for 15 minutes. If you did not request a password reset, please ignore this email.\n\n"
+            f"Best regards,\n"
+            f"The VeriSense Team\n"
+        )
+
+        context = ssl.create_default_context()
+
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10, context=context) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+
+        logger.info("Successfully sent password reset email to %s", email)
+
+        return True
+
+    except Exception as err:
+
+        logger.error(
+            "Failed to send password reset email to %s: %s",
+            email,
+            err,
+        )
+
+        return False
+
+
+# ============================================================
+# FORGOT PASSWORD
+# ============================================================
+
+@app.post("/forgot-password")
+def forgot_password(
+    request: Request,
+    payload: ForgotPasswordRequest
+):
+
+    enforce_rate_limit(request)
+
+    email = validate_email(
+        payload.email
+    )
+
+    connection = None
+
+    try:
+
+        connection = require_db_connection()
+
+        dev_reset_link = None
+        raw_token = None
+
+        with connection:
+
+            with connection.cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE email = %s
+                    """,
+                    (email,)
+                )
+
+                user = cursor.fetchone()
+
+                if not user:
+
+                    dummy_hash = hash_password(
+                        secrets.token_urlsafe(16)
+                    )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO users
+                        (email, password_hash)
+                        VALUES
+                        (%s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            email,
+                            dummy_hash
+                        )
+                    )
+
+                    user = cursor.fetchone()
+
+                user_id = user[0]
+
+                raw_token = secrets.token_urlsafe(32)
+
+                token_hash = hashlib.sha256(
+                    raw_token.encode()
+                ).hexdigest()
+
+                expires_at = datetime.now(
+                    timezone.utc
+                ) + timedelta(minutes=15)
+
+                cursor.execute(
+                    """
+                    UPDATE password_reset_tokens
+                    SET used = TRUE
+                    WHERE user_id = %s AND used = FALSE
+                    """,
+                    (user_id,)
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO password_reset_tokens
+                    (user_id, token_hash, expires_at, used)
+                    VALUES
+                    (%s, %s, %s, FALSE)
+                    """,
+                    (
+                        user_id,
+                        token_hash,
+                        expires_at
+                    )
+                )
+
+                client_origin = request.headers.get("origin") or request.headers.get("referer")
+
+                if client_origin:
+
+                    base_url = client_origin.rstrip("/").split("#")[0].rstrip("/")
+
+                else:
+
+                    base_url = FRONTEND_URL
+
+                reset_link = f"{base_url}/?reset_token={raw_token}"
+
+                email_sent = send_reset_password_email(
+                    email,
+                    reset_link
+                )
+
+                if not email_sent:
+
+                    dev_reset_link = reset_link
+
+        response_data = {
+            "status": "success",
+            "message": "If an account with that email exists, password reset instructions have been sent."
+        }
+
+        if dev_reset_link:
+
+            response_data["dev_reset_link"] = dev_reset_link
+            response_data["dev_reset_token"] = raw_token
+
+        return response_data
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        logger.error(
+            "Forgot password error: %s",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to process password reset request."
+        )
+
+    finally:
+
+        if connection is not None:
+
+            connection.close()
+
+
+# ============================================================
+# VERIFY RESET TOKEN
+# ============================================================
+
+@app.get("/verify-reset-token")
+def verify_reset_token(
+    token: str
+):
+
+    token_str = token.strip() if token else ""
+
+    if not token_str:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Reset token is required."
+        )
+
+    token_hash = hashlib.sha256(
+        token_str.encode()
+    ).hexdigest()
+
+    connection = None
+
+    try:
+
+        connection = require_db_connection()
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id, expires_at, used
+                FROM password_reset_tokens
+                WHERE token_hash = %s
+                """,
+                (token_hash,)
+            )
+
+            record = cursor.fetchone()
+
+        if not record:
+
+            return {
+                "valid": False,
+                "reason": "Invalid token."
+            }
+
+        expires_at = record[1]
+        used = record[2]
+
+        now = datetime.now(
+            timezone.utc
+        )
+
+        if used:
+
+            return {
+                "valid": False,
+                "reason": "Token has already been used."
+            }
+
+        if expires_at < now:
+
+            return {
+                "valid": False,
+                "reason": "Token has expired."
+            }
+
+        return {
+            "valid": True,
+            "message": "Token is valid."
+        }
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        logger.error(
+            "Verify reset token error: %s",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to verify token."
+        )
+
+    finally:
+
+        if connection is not None:
+
+            connection.close()
+
+
+# ============================================================
+# RESET PASSWORD
+# ============================================================
+
+@app.post("/reset-password")
+def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest
+):
+
+    enforce_rate_limit(request)
+
+    token = payload.token.strip()
+    new_password = payload.new_password
+
+    if not token:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Reset token is required."
+        )
+
+    if len(new_password) < 8:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least 8 characters."
+        )
+
+    token_hash = hashlib.sha256(
+        token.encode()
+    ).hexdigest()
+
+    connection = None
+
+    try:
+
+        connection = require_db_connection()
+
+        with connection:
+
+            with connection.cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT id, user_id, expires_at, used
+                    FROM password_reset_tokens
+                    WHERE token_hash = %s
+                    """,
+                    (token_hash,)
+                )
+
+                record = cursor.fetchone()
+
+                if not record:
+
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid or expired reset token."
+                    )
+
+                token_id = record[0]
+                user_id = record[1]
+                expires_at = record[2]
+                used = record[3]
+
+                if used:
+
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This reset token has already been used."
+                    )
+
+                now = datetime.now(
+                    timezone.utc
+                )
+
+                if expires_at < now:
+
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This reset token has expired. Please request a new one."
+                    )
+
+                new_password_hash = hash_password(
+                    new_password
+                )
+
+                cursor.execute(
+                    """
+                    UPDATE users
+                    SET password_hash = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        new_password_hash,
+                        user_id
+                    )
+                )
+
+                cursor.execute(
+                    """
+                    UPDATE password_reset_tokens
+                    SET used = TRUE
+                    WHERE id = %s
+                    """,
+                    (token_id,)
+                )
+
+        return {
+            "status": "success",
+            "message": "Password reset successfully. You can now login with your new password."
+        }
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        logger.error(
+            "Reset password error: %s",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to reset password."
         )
 
     finally:

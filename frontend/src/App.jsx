@@ -24,12 +24,31 @@ import {
   Filter,
   History as HistoryIcon,
   Info,
+  KeyRound,
+  ArrowLeft,
 } from "lucide-react";
 
-const DEFAULT_API_BASE_URL = "https://verisense-backend-2794.onrender.com";
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
-).replace(/\/$/, "");
+const getInitialApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.startsWith("192.168.") ||
+      host.startsWith("10.") ||
+      host.startsWith("172.") ||
+      host.endsWith(".local")
+    ) {
+      return `http://${host}:8000`;
+    }
+  }
+  return "https://verisense-backend-2794.onrender.com";
+};
+
+const API_BASE_URL = getInitialApiBaseUrl().replace(/\/$/, "");
 
 const TOKEN_KEY = "verisense_access_token";
 const USER_KEY = "verisense_user";
@@ -77,6 +96,9 @@ function App() {
 
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [devResetLink, setDevResetLink] = useState("");
 
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -458,6 +480,151 @@ function App() {
   };
 
   // ============================================================
+  // FORGOT PASSWORD
+  // ============================================================
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+    setDevResetLink("");
+
+    if (!authEmail.trim()) {
+      setAuthError("Please enter your email address.");
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/forgot-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: authEmail.trim() }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Unable to process password reset request."
+          )
+        );
+      }
+
+      const data = await response.json();
+      setAuthMessage(
+        data.message ||
+          "If an account with that email exists, password reset instructions have been sent."
+      );
+
+      if (data.dev_reset_token) {
+        setDevResetLink(data.dev_reset_link || "");
+        setResetToken(data.dev_reset_token);
+      }
+    } catch (err) {
+      console.error("Forgot password error:", err);
+      setAuthError(err.message || "Unable to process password reset request.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // ============================================================
+  // RESET PASSWORD
+  // ============================================================
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+
+    if (!resetToken.trim()) {
+      setAuthError("Password reset token is required.");
+      return;
+    }
+
+    if (!authPassword) {
+      setAuthError("Please enter a new password.");
+      return;
+    }
+
+    if (authPassword.length < 8) {
+      setAuthError("Password must contain at least 8 characters.");
+      return;
+    }
+
+    if (authPassword !== confirmPassword) {
+      setAuthError("Passwords do not match. Please try again.");
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/reset-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: resetToken.trim(),
+          new_password: authPassword,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Unable to reset password. Token may be invalid or expired."
+          )
+        );
+      }
+
+      const data = await response.json();
+      setAuthMessage(
+        data.message ||
+          "Password reset successfully! Redirecting to login..."
+      );
+
+      setTimeout(() => {
+        setAuthMode("login");
+        setAuthPassword("");
+        setConfirmPassword("");
+        setResetToken("");
+        setDevResetLink("");
+        setAuthError("");
+        setAuthMessage("");
+      }, 2000);
+    } catch (err) {
+      console.error("Reset password error:", err);
+      setAuthError(
+        err.message || "Unable to reset password. Token may be invalid or expired."
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // ============================================================
+  // CHECK FOR RESET TOKEN IN URL
+  // ============================================================
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tokenParam = params.get("reset_token") || params.get("token");
+    if (tokenParam) {
+      setResetToken(tokenParam);
+      setAuthMode("reset");
+      setShowAuth(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // ============================================================
   // OPEN LOGIN
   // ============================================================
 
@@ -465,6 +632,9 @@ function App() {
     setAuthMode("login");
     setAuthError("");
     setAuthMessage("");
+    setAuthPassword("");
+    setConfirmPassword("");
+    setDevResetLink("");
     setShowAuth(true);
     setMobileMenuOpen(false);
   };
@@ -481,6 +651,7 @@ function App() {
     setShowAuth(false);
     setAuthError("");
     setAuthMessage("");
+    setDevResetLink("");
   };
 
   // ============================================================
@@ -2155,83 +2326,210 @@ function App() {
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400">
                 {authMode === "login" ? (
                   <LogIn size={21} />
-                ) : (
+                ) : authMode === "register" ? (
                   <UserPlus size={21} />
+                ) : authMode === "forgot" ? (
+                  <KeyRound size={21} />
+                ) : (
+                  <RotateCcw size={21} />
                 )}
               </div>
 
               <h2 className="mt-5 text-2xl font-bold">
-                {authMode === "login" ? "Welcome back" : "Create your account"}
+                {authMode === "login"
+                  ? "Welcome back"
+                  : authMode === "register"
+                  ? "Create your account"
+                  : authMode === "forgot"
+                  ? "Reset your password"
+                  : "Set new password"}
               </h2>
 
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 {authMode === "login"
                   ? "Login to analyze content and access your prediction history."
-                  : "Create an account to securely save and manage your analyses."}
+                  : authMode === "register"
+                  ? "Create an account to securely save and manage your analyses."
+                  : authMode === "forgot"
+                  ? "Enter your registered email address to receive password reset instructions."
+                  : "Enter your new password below to reset your account password."}
               </p>
             </div>
 
             {/* FORM */}
 
             <form
-              onSubmit={authMode === "login" ? handleLogin : handleRegister}
+              onSubmit={
+                authMode === "login"
+                  ? handleLogin
+                  : authMode === "register"
+                  ? handleRegister
+                  : authMode === "forgot"
+                  ? handleForgotPassword
+                  : handleResetPassword
+              }
               className="p-6 sm:p-8"
             >
-              {/* EMAIL */}
+              {/* EMAIL FIELD (login, register, forgot) */}
 
-              <div>
-                <label className="mb-2 block text-xs font-medium text-slate-400">
-                  Email
-                </label>
+              {authMode !== "reset" && (
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-400">
+                    Email
+                  </label>
 
-                <div className="relative">
-                  <Mail
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600"
-                  />
+                  <div className="relative">
+                    <Mail
+                      size={16}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600"
+                    />
 
-                  <input
-                    type="email"
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-700 focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
-                  />
+                    <input
+                      type="email"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-700 focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* PASSWORD */}
+              {/* RESET TOKEN FIELD (reset mode only) */}
 
-              <div className="mt-5">
-                <label className="mb-2 block text-xs font-medium text-slate-400">
-                  Password
-                </label>
+              {authMode === "reset" && (
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-400">
+                    Reset Token
+                  </label>
 
-                <div className="relative">
-                  <Lock
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600"
-                  />
+                  <div className="relative">
+                    <KeyRound
+                      size={16}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600"
+                    />
 
-                  <input
-                    type="password"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    autoComplete={
-                      authMode === "login" ? "current-password" : "new-password"
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-700 focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
-                  />
+                    <input
+                      type="text"
+                      value={resetToken}
+                      onChange={(e) => setResetToken(e.target.value)}
+                      placeholder="Paste your reset token"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-700 focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
+                    />
+                  </div>
                 </div>
+              )}
 
-                {authMode === "register" && (
-                  <p className="mt-2 text-[10px] text-slate-700">
-                    Use at least 8 characters.
+              {/* PASSWORD FIELD (login, register, reset) */}
+
+              {(authMode === "login" ||
+                authMode === "register" ||
+                authMode === "reset") && (
+                <div className="mt-5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-xs font-medium text-slate-400">
+                      {authMode === "reset" ? "New Password" : "Password"}
+                    </label>
+
+                    {authMode === "login" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode("forgot");
+                          setAuthError("");
+                          setAuthMessage("");
+                          setDevResetLink("");
+                        }}
+                        className="text-xs font-medium text-blue-400 transition hover:text-blue-300"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600"
+                    />
+
+                    <input
+                      type="password"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder={
+                        authMode === "reset"
+                          ? "Minimum 8 characters"
+                          : "Enter your password"
+                      }
+                      autoComplete={
+                        authMode === "login"
+                          ? "current-password"
+                          : "new-password"
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-700 focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
+                    />
+                  </div>
+
+                  {(authMode === "register" || authMode === "reset") && (
+                    <p className="mt-2 text-[10px] text-slate-700">
+                      Use at least 8 characters.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* CONFIRM PASSWORD FIELD (reset mode only) */}
+
+              {authMode === "reset" && (
+                <div className="mt-5">
+                  <label className="mb-2 block text-xs font-medium text-slate-400">
+                    Confirm New Password
+                  </label>
+
+                  <div className="relative">
+                    <Lock
+                      size={16}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600"
+                    />
+
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter your new password"
+                      autoComplete="new-password"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-700 focus:border-blue-500/40 focus:ring-4 focus:ring-blue-500/10"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* DEV RESET LINK NOTIFICATION (LOCAL TESTING HELPER) */}
+
+              {devResetLink && (
+                <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-200">
+                  <p className="font-semibold text-amber-300">
+                    Local Dev Reset Link:
                   </p>
-                )}
-              </div>
+                  <p className="mt-1 select-all break-all font-mono text-[11px] text-amber-100">
+                    {devResetLink}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("reset");
+                      setAuthError("");
+                      setAuthMessage("");
+                    }}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-400 underline hover:text-blue-300"
+                  >
+                    Proceed to Reset Form
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              )}
 
               {/* ERROR */}
 
@@ -2253,7 +2551,7 @@ function App() {
                 </div>
               )}
 
-              {/* SUBMIT */}
+              {/* SUBMIT BUTTON */}
 
               <button
                 type="submit"
@@ -2270,36 +2568,71 @@ function App() {
                     <LogIn size={16} />
                     Login
                   </>
-                ) : (
+                ) : authMode === "register" ? (
                   <>
                     <UserPlus size={16} />
                     Create Account
                   </>
+                ) : authMode === "forgot" ? (
+                  <>
+                    <KeyRound size={16} />
+                    Send Reset Link
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={16} />
+                    Reset Password
+                  </>
                 )}
               </button>
 
-              {/* SWITCH */}
+              {/* SWITCH / BACK NAVIGATION */}
 
               <div className="mt-6 text-center">
-                <p className="text-xs text-slate-700">
-                  {authMode === "login"
-                    ? "Don't have an account?"
-                    : "Already have an account?"}
-                </p>
+                {authMode === "forgot" || authMode === "reset" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("login");
+                      setAuthError("");
+                      setAuthMessage("");
+                      setAuthPassword("");
+                      setConfirmPassword("");
+                      setDevResetLink("");
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 transition hover:text-blue-300"
+                  >
+                    <ArrowLeft size={13} />
+                    Back to Login
+                  </button>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-700">
+                      {authMode === "login"
+                        ? "Don't have an account?"
+                        : "Already have an account?"}
+                    </p>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode(authMode === "login" ? "register" : "login");
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode(
+                          authMode === "login" ? "register" : "login"
+                        );
 
-                    setAuthError("");
-                    setAuthMessage("");
-                    setAuthPassword("");
-                  }}
-                  className="mt-1 text-xs font-medium text-blue-400 transition hover:text-blue-300"
-                >
-                  {authMode === "login" ? "Create an account" : "Login instead"}
-                </button>
+                        setAuthError("");
+                        setAuthMessage("");
+                        setAuthPassword("");
+                        setConfirmPassword("");
+                      }}
+                      className="mt-1 text-xs font-medium text-blue-400 transition hover:text-blue-300"
+                    >
+                      {authMode === "login"
+                        ? "Create an account"
+                        : "Login instead"}
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* PRIVACY */}

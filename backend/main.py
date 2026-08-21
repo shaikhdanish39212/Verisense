@@ -15,7 +15,6 @@ import time
 import psycopg2
 
 from email.message import EmailMessage
-
 from pathlib import Path
 from dotenv import load_dotenv
 from passlib.context import CryptContext
@@ -45,6 +44,7 @@ ALLOWED_ORIGINS = [
 ]
 
 extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+
 if extra_origins:
     ALLOWED_ORIGINS.extend(
         origin.strip()
@@ -55,7 +55,11 @@ if extra_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+)(:\d+)?",
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|"
+        r"10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+)"
+        r"(:\d+)?"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,7 +71,6 @@ app.add_middleware(
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-
 MODEL_DIR = BASE_DIR / "model"
 
 
@@ -81,6 +84,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+
 logger = logging.getLogger("verisense")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -118,17 +122,27 @@ pwd_context = CryptContext(
 security = HTTPBearer()
 
 RATE_LIMIT_WINDOW_SECONDS = int(
-    os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+    os.getenv(
+        "RATE_LIMIT_WINDOW_SECONDS",
+        "60"
+    )
 )
+
 RATE_LIMIT_MAX_REQUESTS = int(
-    os.getenv("RATE_LIMIT_MAX_REQUESTS", "30")
+    os.getenv(
+        "RATE_LIMIT_MAX_REQUESTS",
+        "30"
+    )
 )
+
 REQUEST_TIMESTAMPS = {}
 
 
-def get_client_ip(request):
+def get_client_ip(request: Request):
 
-    forwarded_for = request.headers.get("x-forwarded-for")
+    forwarded_for = request.headers.get(
+        "x-forwarded-for"
+    )
 
     if forwarded_for:
         return forwarded_for.split(",")[0].strip()
@@ -139,12 +153,15 @@ def get_client_ip(request):
     return "unknown"
 
 
-def enforce_rate_limit(request):
+def enforce_rate_limit(request: Request):
 
     client_ip = get_client_ip(request)
     now = time.time()
 
-    timestamps = REQUEST_TIMESTAMPS.setdefault(client_ip, [])
+    timestamps = REQUEST_TIMESTAMPS.setdefault(
+        client_ip,
+        []
+    )
 
     timestamps[:] = [
         timestamp
@@ -155,7 +172,10 @@ def enforce_rate_limit(request):
     if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
         raise HTTPException(
             status_code=429,
-            detail="Too many requests. Please wait a moment and try again."
+            detail=(
+                "Too many requests. "
+                "Please wait a moment and try again."
+            )
         )
 
     timestamps.append(now)
@@ -196,7 +216,6 @@ required_files = [
 for file_path in required_files:
 
     if not file_path.exists():
-
         raise FileNotFoundError(
             f"Model file not found: {file_path}"
         )
@@ -250,7 +269,10 @@ class PredictionRequest(BaseModel):
         ...,
         min_length=1,
         max_length=2000,
-        description="Text to classify. Maximum 2,000 characters."
+        description=(
+            "Text to classify. "
+            "Maximum 2,000 characters."
+        )
     )
 
 
@@ -323,38 +345,53 @@ def init_db_tables(connection):
         return
 
     try:
+
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     email VARCHAR(255) UNIQUE NOT NULL,
                     password_hash VARCHAR(255) NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP WITH TIME ZONE
+                        DEFAULT CURRENT_TIMESTAMP
                 );
 
                 CREATE TABLE IF NOT EXISTS prediction_history (
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    user_id INTEGER
+                        REFERENCES users(id)
+                        ON DELETE CASCADE,
                     text TEXT NOT NULL,
                     prediction INTEGER NOT NULL,
                     confidence DOUBLE PRECISION NOT NULL,
                     model VARCHAR(100) NOT NULL,
                     dataset VARCHAR(100) NOT NULL,
                     model_accuracy VARCHAR(50) NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP WITH TIME ZONE
+                        DEFAULT CURRENT_TIMESTAMP
                 );
 
                 CREATE TABLE IF NOT EXISTS password_reset_tokens (
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL
+                        REFERENCES users(id)
+                        ON DELETE CASCADE,
                     token_hash VARCHAR(255) NOT NULL UNIQUE,
                     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
                     used BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP WITH TIME ZONE
+                        DEFAULT CURRENT_TIMESTAMP
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_reset_token_hash ON password_reset_tokens(token_hash);
+                CREATE INDEX IF NOT EXISTS
+                idx_reset_token_hash
+                ON password_reset_tokens(token_hash);
+
+                CREATE INDEX IF NOT EXISTS
+                idx_reset_user_id
+                ON password_reset_tokens(user_id);
                 """
             )
 
@@ -366,7 +403,7 @@ def init_db_tables(connection):
 
         logger.warning(
             "Could not auto-initialize DB tables: %s",
-            error,
+            error
         )
 
 
@@ -397,7 +434,7 @@ def require_db_connection():
 
         logger.error(
             "Database configuration error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -409,7 +446,7 @@ def require_db_connection():
 
         logger.error(
             "Database connection error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -444,9 +481,7 @@ def validate_email(email):
 
 def hash_password(password):
 
-    return pwd_context.hash(
-        password
-    )
+    return pwd_context.hash(password)
 
 
 def verify_password(
@@ -466,10 +501,11 @@ def verify_password(
 
 def create_access_token(user_id):
 
-    expire = datetime.now(
-        timezone.utc
-    ) + timedelta(
-        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    expire = (
+        datetime.now(timezone.utc)
+        + timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+        )
     )
 
     payload = {
@@ -595,9 +631,7 @@ def health_check():
 
         with connection.cursor() as cursor:
 
-            cursor.execute(
-                "SELECT 1"
-            )
+            cursor.execute("SELECT 1")
 
         database_status = "connected"
 
@@ -605,13 +639,12 @@ def health_check():
 
         logger.error(
             "Health check error: %s",
-            error,
+            error
         )
 
     finally:
 
         if connection is not None:
-
             connection.close()
 
     return {
@@ -672,7 +705,10 @@ def register(
 
                     raise HTTPException(
                         status_code=409,
-                        detail="An account with this email already exists."
+                        detail=(
+                            "An account with this email "
+                            "already exists."
+                        )
                     )
 
                 password_hash = hash_password(
@@ -708,14 +744,13 @@ def register(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Registration error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -726,7 +761,6 @@ def register(
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -776,7 +810,6 @@ def login(
             )
 
         user_id = user[0]
-
         password_hash = user[2]
 
         if not verify_password(
@@ -805,14 +838,13 @@ def login(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Login error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -823,28 +855,67 @@ def login(
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
 # ============================================================
-# EMAIL HELPER
+# SMTP CONFIGURATION
 # ============================================================
 
-SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER or "noreply@verisense.app")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+SMTP_HOST = os.getenv(
+    "SMTP_HOST",
+    ""
+)
+
+SMTP_PORT = int(
+    os.getenv(
+        "SMTP_PORT",
+        "587"
+    )
+)
+
+SMTP_USER = os.getenv(
+    "SMTP_USER",
+    ""
+)
+
+SMTP_PASSWORD = os.getenv(
+    "SMTP_PASSWORD",
+    ""
+)
+
+SMTP_FROM_EMAIL = os.getenv(
+    "SMTP_FROM_EMAIL",
+    SMTP_USER or "noreply@verisense.app"
+)
+
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173"
+).rstrip("/")
 
 
-def send_reset_password_email(email: str, reset_link: str) -> bool:
+# ============================================================
+# SEND RESET PASSWORD EMAIL
+# ============================================================
 
-    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+def send_reset_password_email(
+    email: str,
+    reset_link: str
+) -> bool:
 
-        logger.info(
-            "SMTP credentials not fully configured. Password reset link for %s: %s",
+    if (
+        not SMTP_HOST
+        or not SMTP_USER
+        or not SMTP_PASSWORD
+    ):
+
+        logger.warning(
+            "SMTP credentials are not fully configured."
+        )
+
+        logger.warning(
+            "Development reset link for %s: %s",
             email,
             reset_link
         )
@@ -853,48 +924,94 @@ def send_reset_password_email(email: str, reset_link: str) -> bool:
 
     try:
 
-        msg = EmailMessage()
+        message = EmailMessage()
 
-        msg["Subject"] = "VeriSense - Reset Your Password"
+        message["Subject"] = (
+            "VeriSense - Reset Your Password"
+        )
 
-        msg["From"] = SMTP_FROM_EMAIL
+        message["From"] = SMTP_FROM_EMAIL
+        message["To"] = email
 
-        msg["To"] = email
+        message.set_content(
+            f"""
+Hello,
 
-        msg.set_content(
-            f"Hello,\n\n"
-            f"You requested a password reset for your VeriSense account.\n\n"
-            f"Please click the link below or paste it into your browser to reset your password:\n"
-            f"{reset_link}\n\n"
-            f"This link is valid for 15 minutes. If you did not request a password reset, please ignore this email.\n\n"
-            f"Best regards,\n"
-            f"The VeriSense Team\n"
+You requested a password reset for your VeriSense account.
+
+Click the link below to create a new password:
+
+{reset_link}
+
+This password reset link is valid for 15 minutes
+and can only be used once.
+
+If you did not request a password reset,
+please ignore this email.
+
+Best regards,
+The VeriSense Team
+"""
         )
 
         context = ssl.create_default_context()
 
         if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10, context=context) as server:
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-                server.ehlo()
-                server.starttls(context=context)
-                server.ehlo()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.send_message(msg)
 
-        logger.info("Successfully sent password reset email to %s", email)
+            with smtplib.SMTP_SSL(
+                SMTP_HOST,
+                SMTP_PORT,
+                timeout=10,
+                context=context
+            ) as server:
+
+                server.login(
+                    SMTP_USER,
+                    SMTP_PASSWORD
+                )
+
+                server.send_message(
+                    message
+                )
+
+        else:
+
+            with smtplib.SMTP(
+                SMTP_HOST,
+                SMTP_PORT,
+                timeout=10
+            ) as server:
+
+                server.ehlo()
+
+                server.starttls(
+                    context=context
+                )
+
+                server.ehlo()
+
+                server.login(
+                    SMTP_USER,
+                    SMTP_PASSWORD
+                )
+
+                server.send_message(
+                    message
+                )
+
+        logger.info(
+            "Password reset email sent to %s",
+            email
+        )
 
         return True
 
-    except Exception as err:
+    except Exception as error:
 
         logger.error(
-            "Failed to send password reset email to %s: %s",
+            "Failed to send reset email to %s: %s",
             email,
-            err,
+            error
         )
 
         return False
@@ -922,8 +1039,8 @@ def forgot_password(
 
         connection = require_db_connection()
 
-        dev_reset_link = None
         raw_token = None
+        dev_reset_link = None
 
         with connection:
 
@@ -942,53 +1059,53 @@ def forgot_password(
 
                 if not user:
 
-                    dummy_hash = hash_password(
-                        secrets.token_urlsafe(16)
-                    )
-
-                    cursor.execute(
-                        """
-                        INSERT INTO users
-                        (email, password_hash)
-                        VALUES
-                        (%s, %s)
-                        RETURNING id
-                        """,
-                        (
-                            email,
-                            dummy_hash
+                    return {
+                        "status": "success",
+                        "message": (
+                            "If an account with that email exists, "
+                            "password reset instructions have been sent."
                         )
-                    )
-
-                    user = cursor.fetchone()
+                    }
 
                 user_id = user[0]
-
-                raw_token = secrets.token_urlsafe(32)
-
-                token_hash = hashlib.sha256(
-                    raw_token.encode()
-                ).hexdigest()
-
-                expires_at = datetime.now(
-                    timezone.utc
-                ) + timedelta(minutes=15)
 
                 cursor.execute(
                     """
                     UPDATE password_reset_tokens
                     SET used = TRUE
-                    WHERE user_id = %s AND used = FALSE
+                    WHERE user_id = %s
+                    AND used = FALSE
                     """,
                     (user_id,)
+                )
+
+                raw_token = secrets.token_urlsafe(32)
+
+                token_hash = hashlib.sha256(
+                    raw_token.encode("utf-8")
+                ).hexdigest()
+
+                expires_at = (
+                    datetime.now(timezone.utc)
+                    + timedelta(minutes=15)
                 )
 
                 cursor.execute(
                     """
                     INSERT INTO password_reset_tokens
-                    (user_id, token_hash, expires_at, used)
+                    (
+                        user_id,
+                        token_hash,
+                        expires_at,
+                        used
+                    )
                     VALUES
-                    (%s, %s, %s, FALSE)
+                    (
+                        %s,
+                        %s,
+                        %s,
+                        FALSE
+                    )
                     """,
                     (
                         user_id,
@@ -997,17 +1114,10 @@ def forgot_password(
                     )
                 )
 
-                client_origin = request.headers.get("origin") or request.headers.get("referer")
-
-                if client_origin:
-
-                    base_url = client_origin.rstrip("/").split("#")[0].rstrip("/")
-
-                else:
-
-                    base_url = FRONTEND_URL
-
-                reset_link = f"{base_url}/?reset_token={raw_token}"
+                reset_link = (
+                    f"{FRONTEND_URL}"
+                    f"/?reset_token={raw_token}"
+                )
 
                 email_sent = send_reset_password_email(
                     email,
@@ -1015,41 +1125,48 @@ def forgot_password(
                 )
 
                 if not email_sent:
-
                     dev_reset_link = reset_link
 
         response_data = {
             "status": "success",
-            "message": "If an account with that email exists, password reset instructions have been sent."
+            "message": (
+                "If an account with that email exists, "
+                "password reset instructions have been sent."
+            )
         }
 
         if dev_reset_link:
 
-            response_data["dev_reset_link"] = dev_reset_link
-            response_data["dev_reset_token"] = raw_token
+            response_data["dev_reset_link"] = (
+                dev_reset_link
+            )
+
+            response_data["dev_reset_token"] = (
+                raw_token
+            )
 
         return response_data
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Forgot password error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to process password reset request."
+            detail=(
+                "Unable to process password reset request."
+            )
         )
 
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1062,7 +1179,11 @@ def verify_reset_token(
     token: str
 ):
 
-    token_str = token.strip() if token else ""
+    token_str = (
+        token.strip()
+        if token
+        else ""
+    )
 
     if not token_str:
 
@@ -1072,7 +1193,7 @@ def verify_reset_token(
         )
 
     token_hash = hashlib.sha256(
-        token_str.encode()
+        token_str.encode("utf-8")
     ).hexdigest()
 
     connection = None
@@ -1085,7 +1206,10 @@ def verify_reset_token(
 
             cursor.execute(
                 """
-                SELECT id, expires_at, used
+                SELECT
+                    id,
+                    expires_at,
+                    used
                 FROM password_reset_tokens
                 WHERE token_hash = %s
                 """,
@@ -1101,12 +1225,9 @@ def verify_reset_token(
                 "reason": "Invalid token."
             }
 
+        token_id = record[0]
         expires_at = record[1]
         used = record[2]
-
-        now = datetime.now(
-            timezone.utc
-        )
 
         if used:
 
@@ -1114,6 +1235,10 @@ def verify_reset_token(
                 "valid": False,
                 "reason": "Token has already been used."
             }
+
+        now = datetime.now(
+            timezone.utc
+        )
 
         if expires_at < now:
 
@@ -1124,18 +1249,18 @@ def verify_reset_token(
 
         return {
             "valid": True,
+            "token_id": token_id,
             "message": "Token is valid."
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Verify reset token error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -1146,7 +1271,6 @@ def verify_reset_token(
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1176,11 +1300,13 @@ def reset_password(
 
         raise HTTPException(
             status_code=400,
-            detail="Password must contain at least 8 characters."
+            detail=(
+                "Password must contain at least 8 characters."
+            )
         )
 
     token_hash = hashlib.sha256(
-        token.encode()
+        token.encode("utf-8")
     ).hexdigest()
 
     connection = None
@@ -1195,9 +1321,14 @@ def reset_password(
 
                 cursor.execute(
                     """
-                    SELECT id, user_id, expires_at, used
+                    SELECT
+                        id,
+                        user_id,
+                        expires_at,
+                        used
                     FROM password_reset_tokens
                     WHERE token_hash = %s
+                    FOR UPDATE
                     """,
                     (token_hash,)
                 )
@@ -1208,7 +1339,9 @@ def reset_password(
 
                     raise HTTPException(
                         status_code=400,
-                        detail="Invalid or expired reset token."
+                        detail=(
+                            "Invalid or expired reset token."
+                        )
                     )
 
                 token_id = record[0]
@@ -1220,7 +1353,10 @@ def reset_password(
 
                     raise HTTPException(
                         status_code=400,
-                        detail="This reset token has already been used."
+                        detail=(
+                            "This reset token has already "
+                            "been used."
+                        )
                     )
 
                 now = datetime.now(
@@ -1231,7 +1367,10 @@ def reset_password(
 
                     raise HTTPException(
                         status_code=400,
-                        detail="This reset token has expired. Please request a new one."
+                        detail=(
+                            "This reset token has expired. "
+                            "Please request a new one."
+                        )
                     )
 
                 new_password_hash = hash_password(
@@ -1261,18 +1400,20 @@ def reset_password(
 
         return {
             "status": "success",
-            "message": "Password reset successfully. You can now login with your new password."
+            "message": (
+                "Password reset successfully. "
+                "You can now login with your new password."
+            )
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Reset password error: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -1283,7 +1424,6 @@ def reset_password(
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1337,14 +1477,13 @@ def get_me(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Could not fetch user: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -1355,7 +1494,6 @@ def get_me(
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1421,13 +1559,12 @@ def save_prediction_history(
 
         logger.error(
             "Could not save prediction history: %s",
-            error,
+            error
         )
 
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1499,14 +1636,13 @@ def get_prediction_history(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Could not fetch history: %s",
-            error,
+            error
         )
 
         raise HTTPException(
@@ -1517,7 +1653,6 @@ def get_prediction_history(
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1562,35 +1697,40 @@ def delete_prediction_history_item(
 
             raise HTTPException(
                 status_code=404,
-                detail="Prediction history item not found."
+                detail=(
+                    "Prediction history item not found."
+                )
             )
 
         return {
             "status": "success",
-            "message": "Prediction history item deleted.",
+            "message": (
+                "Prediction history item deleted."
+            ),
             "deleted_id": history_id
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Could not delete history item: %s",
-            error,
+            error
         )
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to delete prediction history item."
+            detail=(
+                "Unable to delete prediction "
+                "history item."
+            )
         )
 
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1632,25 +1772,25 @@ def clear_prediction_history(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as error:
 
         logger.error(
             "Could not clear history: %s",
-            error,
+            error
         )
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to clear prediction history."
+            detail=(
+                "Unable to clear prediction history."
+            )
         )
 
     finally:
 
         if connection is not None:
-
             connection.close()
 
 
@@ -1709,11 +1849,15 @@ def predict(
 
     if int(prediction) == 0:
 
-        label = "Fake / Potential Misinformation"
+        label = (
+            "Fake / Potential Misinformation"
+        )
 
     else:
 
-        label = "Real / Likely Authentic"
+        label = (
+            "Real / Likely Authentic"
+        )
 
     save_prediction_history(
         user_id=user_id,
@@ -1787,11 +1931,15 @@ def predict_liar(
 
     if int(prediction) == 0:
 
-        label = "Fake / Potential Misinformation"
+        label = (
+            "Fake / Potential Misinformation"
+        )
 
     else:
 
-        label = "Real / Likely Authentic"
+        label = (
+            "Real / Likely Authentic"
+        )
 
     save_prediction_history(
         user_id=user_id,

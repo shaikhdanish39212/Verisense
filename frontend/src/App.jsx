@@ -26,10 +26,31 @@ import {
   Info,
 } from "lucide-react";
 
-const API_BASE_URL = "https://verisense-backend-2794.onrender.com";
+const DEFAULT_API_BASE_URL = "https://verisense-backend-2794.onrender.com";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
+).replace(/\/$/, "");
 
 const TOKEN_KEY = "verisense_access_token";
 const USER_KEY = "verisense_user";
+
+const getErrorMessage = async (response, fallbackMessage) => {
+  try {
+    const data = await response.clone().json();
+
+    if (data?.detail) {
+      return data.detail;
+    }
+
+    if (data?.message) {
+      return data.message;
+    }
+  } catch {
+    // Ignore JSON parse issues and fall back to a generic message.
+  }
+
+  return fallbackMessage;
+};
 
 function App() {
   // ============================================================
@@ -39,6 +60,8 @@ function App() {
   const [token, setToken] = useState(
     () => localStorage.getItem(TOKEN_KEY) || "",
   );
+
+  const [apiStatus, setApiStatus] = useState("checking");
 
   const [user, setUser] = useState(() => {
     try {
@@ -69,6 +92,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const [selectedModel, setSelectedModel] = useState("welfake");
 
@@ -209,6 +233,30 @@ function App() {
   }, []);
 
   // ============================================================
+  // VERIFY BACKEND HEALTH
+  // ============================================================
+
+  const checkApiHealth = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("Backend health check failed");
+      }
+
+      setApiStatus("healthy");
+      return true;
+    } catch (error) {
+      console.error("API health check failed:", error);
+      setApiStatus("unhealthy");
+      return false;
+    }
+  }, []);
+
+  // ============================================================
   // VERIFY EXISTING TOKEN
   // ============================================================
 
@@ -323,11 +371,13 @@ function App() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.detail || "Invalid email or password.");
+        throw new Error(
+          await getErrorMessage(response, "Invalid email or password."),
+        );
       }
+
+      const data = await response.json();
 
       localStorage.setItem(TOKEN_KEY, data.access_token);
 
@@ -386,11 +436,13 @@ function App() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.detail || "Unable to create account.");
+        throw new Error(
+          await getErrorMessage(response, "Unable to create account."),
+        );
       }
+
+      const data = await response.json();
 
       setAuthMessage("Account created successfully. You can now login.");
 
@@ -437,7 +489,8 @@ function App() {
 
   useEffect(() => {
     verifySession();
-  }, []);
+    checkApiHealth();
+  }, [checkApiHealth]);
 
   // ============================================================
   // LOAD HISTORY AFTER AUTHENTICATION
@@ -488,6 +541,13 @@ function App() {
   // ============================================================
 
   const handleAnalyze = async () => {
+    if (apiStatus !== "healthy") {
+      setError(
+        "The prediction service is currently unavailable. Please try again in a moment.",
+      );
+      return;
+    }
+
     if (!isAuthenticated) {
       setError("Login is required to analyze and save prediction history.");
 
@@ -530,7 +590,9 @@ function App() {
       }
 
       if (!response.ok) {
-        throw new Error("Prediction request failed");
+        throw new Error(
+          await getErrorMessage(response, "Prediction request failed."),
+        );
       }
 
       const data = await response.json();
@@ -541,6 +603,7 @@ function App() {
       }
 
       setResult(data);
+      setLastUpdated(new Date().toLocaleString());
 
       await loadHistory();
     } catch (err) {
@@ -892,9 +955,29 @@ function App() {
                 </button>
               )}
 
-              <div className="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-400 sm:flex">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                System Ready
+              <div
+                className={`hidden items-center gap-2 rounded-full border px-3 py-2 text-xs sm:flex ${
+                  apiStatus === "healthy"
+                    ? "border-emerald-400/15 bg-emerald-400/5 text-emerald-400"
+                    : apiStatus === "unhealthy"
+                      ? "border-red-400/15 bg-red-400/5 text-red-400"
+                      : "border-amber-400/15 bg-amber-400/5 text-amber-300"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    apiStatus === "healthy"
+                      ? "bg-emerald-400"
+                      : apiStatus === "unhealthy"
+                        ? "bg-red-400"
+                        : "bg-amber-300"
+                  }`}
+                />
+                {apiStatus === "healthy"
+                  ? "System Ready"
+                  : apiStatus === "unhealthy"
+                    ? "Backend Offline"
+                    : "Checking Service"}
               </div>
 
               <button
@@ -997,6 +1080,15 @@ function App() {
               <div className="mt-7 inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-slate-500">
                 <Lock size={13} />
                 Login required to run and save analyses
+              </div>
+            )}
+
+            {apiStatus !== "healthy" && (
+              <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-300">
+                <Clock3 size={13} />
+                {apiStatus === "unhealthy"
+                  ? "Backend is temporarily unavailable. Please try again later."
+                  : "Checking the prediction service..."}
               </div>
             )}
           </div>
@@ -1301,6 +1393,13 @@ function App() {
                       predicted class. It is not a measure of factual truth.
                     </p>
                   </div>
+
+                  {lastUpdated && (
+                    <div className="mt-4 flex items-center justify-between rounded-xl border border-white/5 bg-white/2 px-3 py-2 text-[10px] text-slate-500">
+                      <span>Last analyzed</span>
+                      <span>{lastUpdated}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="my-6 h-px bg-white/10" />

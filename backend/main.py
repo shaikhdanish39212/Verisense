@@ -1,11 +1,13 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
+import logging
 import re
 import joblib
 import os
+import time
 import psycopg2
 
 from pathlib import Path
@@ -35,6 +37,15 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://verisense.vercel.app",
 ]
+
+extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+if extra_origins:
+    ALLOWED_ORIGINS.extend(
+        origin.strip()
+        for origin in extra_origins.split(",")
+        if origin.strip()
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -59,6 +70,11 @@ MODEL_DIR = BASE_DIR / "model"
 
 load_dotenv(BASE_DIR / ".env")
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("verisense")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -93,6 +109,49 @@ pwd_context = CryptContext(
 )
 
 security = HTTPBearer()
+
+RATE_LIMIT_WINDOW_SECONDS = int(
+    os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+)
+RATE_LIMIT_MAX_REQUESTS = int(
+    os.getenv("RATE_LIMIT_MAX_REQUESTS", "30")
+)
+REQUEST_TIMESTAMPS = {}
+
+
+def get_client_ip(request):
+
+    forwarded_for = request.headers.get("x-forwarded-for")
+
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+
+    if request.client:
+        return request.client.host
+
+    return "unknown"
+
+
+def enforce_rate_limit(request):
+
+    client_ip = get_client_ip(request)
+    now = time.time()
+
+    timestamps = REQUEST_TIMESTAMPS.setdefault(client_ip, [])
+
+    timestamps[:] = [
+        timestamp
+        for timestamp in timestamps
+        if now - timestamp < RATE_LIMIT_WINDOW_SECONDS
+    ]
+
+    if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please wait a moment and try again."
+        )
+
+    timestamps.append(now)
 
 
 # ============================================================
@@ -243,8 +302,9 @@ def require_db_connection():
 
     except RuntimeError as error:
 
-        print(
-            f"Database configuration error: {error}"
+        logger.error(
+            "Database configuration error: %s",
+            error,
         )
 
         raise HTTPException(
@@ -254,8 +314,9 @@ def require_db_connection():
 
     except Exception as error:
 
-        print(
-            f"Database connection error: {error}"
+        logger.error(
+            "Database connection error: %s",
+            error,
         )
 
         raise HTTPException(
@@ -449,8 +510,9 @@ def health_check():
 
     except Exception as error:
 
-        print(
-            f"Health check error: {error}"
+        logger.error(
+            "Health check error: %s",
+            error,
         )
 
     finally:
@@ -473,14 +535,17 @@ def health_check():
 
 @app.post("/register")
 def register(
-    request: RegisterRequest
+    request: Request,
+    payload: RegisterRequest
 ):
 
+    enforce_rate_limit(request)
+
     email = validate_email(
-        request.email
+        payload.email
     )
 
-    password = request.password
+    password = payload.password
 
     if len(password) < 8:
 
@@ -555,8 +620,9 @@ def register(
 
     except Exception as error:
 
-        print(
-            f"Registration error: {error}"
+        logger.error(
+            "Registration error: %s",
+            error,
         )
 
         raise HTTPException(
@@ -577,11 +643,14 @@ def register(
 
 @app.post("/login")
 def login(
-    request: LoginRequest
+    request: Request,
+    payload: LoginRequest
 ):
 
+    enforce_rate_limit(request)
+
     email = validate_email(
-        request.email
+        payload.email
     )
 
     connection = None
@@ -618,7 +687,7 @@ def login(
         password_hash = user[2]
 
         if not verify_password(
-            request.password,
+            payload.password,
             password_hash
         ):
 
@@ -648,8 +717,9 @@ def login(
 
     except Exception as error:
 
-        print(
-            f"Login error: {error}"
+        logger.error(
+            "Login error: %s",
+            error,
         )
 
         raise HTTPException(
@@ -719,8 +789,9 @@ def get_me(
 
     except Exception as error:
 
-        print(
-            f"Could not fetch user: {error}"
+        logger.error(
+            "Could not fetch user: %s",
+            error,
         )
 
         raise HTTPException(
@@ -795,8 +866,9 @@ def save_prediction_history(
 
     except Exception as error:
 
-        print(
-            f"Could not save prediction history: {error}"
+        logger.error(
+            "Could not save prediction history: %s",
+            error,
         )
 
     finally:
@@ -879,8 +951,9 @@ def get_prediction_history(
 
     except Exception as error:
 
-        print(
-            f"Could not fetch history: {error}"
+        logger.error(
+            "Could not fetch history: %s",
+            error,
         )
 
         raise HTTPException(
@@ -951,8 +1024,9 @@ def delete_prediction_history_item(
 
     except Exception as error:
 
-        print(
-            f"Could not delete history item: {error}"
+        logger.error(
+            "Could not delete history item: %s",
+            error,
         )
 
         raise HTTPException(
@@ -1010,8 +1084,9 @@ def clear_prediction_history(
 
     except Exception as error:
 
-        print(
-            f"Could not clear history: {error}"
+        logger.error(
+            "Could not clear history: %s",
+            error,
         )
 
         raise HTTPException(
@@ -1032,13 +1107,16 @@ def clear_prediction_history(
 
 @app.post("/predict")
 def predict(
-    request: PredictionRequest,
+    request: Request,
+    payload: PredictionRequest,
     user_id: int = Depends(
         get_current_user
     )
 ):
 
-    original_text = request.text.strip()
+    enforce_rate_limit(request)
+
+    original_text = payload.text.strip()
 
     if not original_text:
 
@@ -1107,13 +1185,16 @@ def predict(
 
 @app.post("/predict-liar")
 def predict_liar(
-    request: PredictionRequest,
+    request: Request,
+    payload: PredictionRequest,
     user_id: int = Depends(
         get_current_user
     )
 ):
 
-    original_text = request.text.strip()
+    enforce_rate_limit(request)
+
+    original_text = payload.text.strip()
 
     if not original_text:
 

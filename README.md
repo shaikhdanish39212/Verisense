@@ -1,5 +1,13 @@
 # VeriSense — Misinformation Detection using NLP
 
+## 🌐 Live Demo
+
+**Frontend:** https://verisense.vercel.app/
+
+**Backend API:** https://verisense-backend-2794.onrender.com/
+
+**Deployment:** Vercel + Render + Neon PostgreSQL
+
 ## 📌 Project Overview
 
 VeriSense is an NLP-powered web application designed to detect potentially misleading or false textual content using Natural Language Processing (NLP) and Machine Learning.
@@ -37,27 +45,27 @@ The application also provides a confidence score and stores authenticated users'
 
 ### 1. WELFake — Hybrid SVM
 
-| Metric    |          Result |
-| --------- | --------------: |
-| Dataset   | WELFake Dataset |
-| Model     |      Hybrid SVM |
-| Accuracy  |          98.65% |
-| Precision |          98.16% |
-| Recall    |          98.85% |
-| F1 Score  |          98.51% |
+| Metric | Result |
+|---|---:|
+| Dataset | WELFake Dataset |
+| Model | Hybrid SVM |
+| Accuracy | 98.65% |
+| Precision | 98.16% |
+| Recall | 98.85% |
+| F1 Score | 98.51% |
 
 The WELFake model is designed primarily for news articles and general textual content classification.
 
 ### 2. LIAR — SVM
 
-| Metric    |       Result |
-| --------- | -----------: |
-| Dataset   | LIAR Dataset |
-| Model     |          SVM |
-| Accuracy  |       61.17% |
-| Precision |       61.73% |
-| Recall    |       81.79% |
-| F1 Score  |       70.36% |
+| Metric | Result |
+|---|---:|
+| Dataset | LIAR Dataset |
+| Model | SVM |
+| Accuracy | 61.17% |
+| Precision | 61.73% |
+| Recall | 81.79% |
+| F1 Score | 70.36% |
 
 The LIAR model is designed primarily for political claim classification.
 
@@ -73,24 +81,25 @@ The LIAR model is designed primarily for political claim classification.
                                │
                                ▼
                     ┌──────────────────────┐
-                    │   React Frontend     │
-                    │   Vite + Tailwind    │
+                    │   Vercel Frontend    │
+                    │ React + Vite +       │
+                    │ Tailwind CSS         │
                     └──────────┬───────────┘
                                │
-                         REST API / HTTP
+                         HTTPS / REST API
                                │
                                ▼
                     ┌──────────────────────┐
-                    │   FastAPI Backend    │
-                    │ JWT Authentication   │
+                    │   Render Backend     │
+                    │ FastAPI + JWT Auth   │
                     └──────────┬───────────┘
                                │
                 ┌──────────────┴──────────────┐
                 │                             │
                 ▼                             ▼
        ┌──────────────────┐          ┌──────────────────┐
-       │ Machine Learning │          │    PostgreSQL    │
-       │      Models      │          │     Database     │
+       │ Machine Learning │          │ Neon PostgreSQL  │
+       │      Models      │          │ Users + History  │
        └────────┬─────────┘          └──────────────────┘
                 │
           ┌─────┴─────┐
@@ -135,6 +144,7 @@ The LIAR model is designed primarily for political claim classification.
 
 - PostgreSQL
 - Psycopg2
+- Neon PostgreSQL (Production)
 
 ### Security
 
@@ -149,7 +159,7 @@ The LIAR model is designed primarily for political claim classification.
 ## 📁 Project Structure
 
 ```text
-Misinformation Detection/
+VeriSense/
 │
 ├── backend/
 │   ├── .env
@@ -201,7 +211,7 @@ Before running the project, make sure the following are installed:
 
 ```bash
 git clone <your-repository-url>
-cd "Misinformation Detection"
+cd verisense
 ```
 
 ### 2. Backend Setup
@@ -295,20 +305,65 @@ http://localhost:5173
 
 ---
 
+
+---
+
+# ☁️ Production Deployment
+
+The current production version of VeriSense is deployed using:
+
+| Component | Platform |
+|---|---|
+| Frontend | Vercel |
+| Backend | Render |
+| Database | Neon PostgreSQL |
+| Authentication | JWT |
+| ML Models | WELFake Hybrid SVM + LIAR SVM |
+
+### Production Flow
+
+```text
+User
+  ↓
+Vercel
+React + Vite
+  ↓ HTTPS
+Render
+FastAPI + ML Models
+  ↓
+Neon PostgreSQL
+```
+
+### Production URLs
+
+**Frontend**
+
+```text
+https://verisense.vercel.app/
+```
+
+**Backend**
+
+```text
+https://verisense-backend-2794.onrender.com/
+```
+
+The production application has been tested for registration, login, logout, predictions, prediction history, history deletion, database connectivity, JWT authentication, and frontend-to-backend communication.
+
 # 🔌 API Endpoints
 
-| Method | Endpoint        | Authentication | Purpose                       |
-| ------ | --------------- | -------------- | ----------------------------- |
-| GET    | `/`             | No             | API status                    |
-| GET    | `/health`       | No             | Health check                  |
-| POST   | `/register`     | No             | Create a user account         |
-| POST   | `/login`        | No             | Authenticate a user           |
-| GET    | `/me`           | Yes            | Get current user              |
-| POST   | `/predict`      | Yes            | WELFake prediction            |
-| POST   | `/predict-liar` | Yes            | LIAR prediction               |
-| GET    | `/history`      | Yes            | Get user's prediction history |
-| DELETE | `/history/{id}` | Yes            | Delete one history record     |
-| DELETE | `/history`      | Yes            | Delete all user history       |
+| Method | Endpoint | Authentication | Purpose |
+|---|---|---|---|
+| GET | `/` | No | API status |
+| GET | `/health` | No | Health check |
+| POST | `/register` | No | Create a user account |
+| POST | `/login` | No | Authenticate a user |
+| GET | `/me` | Yes | Get current user |
+| POST | `/predict` | Yes | WELFake prediction |
+| POST | `/predict-liar` | Yes | LIAR prediction |
+| GET | `/history` | Yes | Get user's prediction history |
+| DELETE | `/history/{id}` | Yes | Delete one history record |
+| DELETE | `/history` | Yes | Delete all user history |
 
 ---
 
@@ -844,6 +899,27 @@ The project provides an end-to-end implementation where machine learning models 
 
 ---
 
+
+---
+
+# 🏁 Project Status
+
+**Production Deployed ✅**
+
+The current live version has been tested for:
+
+- Registration
+- Login / Logout
+- WELFake prediction
+- LIAR prediction
+- Prediction confidence
+- Prediction history
+- Individual history deletion
+- Complete history deletion
+- JWT authentication
+- PostgreSQL connectivity
+- Frontend ↔ Backend communication
+
 # 📄 License
 
 This project is developed for academic and educational purposes.
@@ -854,4 +930,4 @@ This project is developed for academic and educational purposes.
 
 **NLP · Detect · Verify**
 
-_Misinformation Detection using Natural Language Processing_
+*Misinformation Detection using Natural Language Processing*

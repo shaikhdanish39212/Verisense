@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Search,
   Sparkles,
@@ -18,9 +18,12 @@ import {
   Lock,
   Mail,
   UserPlus,
+  Menu,
+  ShieldCheck,
 } from "lucide-react";
 
 const API_BASE_URL = "https://verisense-backend-2794.onrender.com";
+
 const TOKEN_KEY = "verisense_access_token";
 const USER_KEY = "verisense_user";
 
@@ -67,6 +70,24 @@ function App() {
 
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ============================================================
+  // MOBILE NAVIGATION
+  // ============================================================
+
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // ============================================================
+  // DELETE CONFIRMATION MODAL
+  // ============================================================
+
+  const [deleteModal, setDeleteModal] = useState({
+    open: false,
+    type: null,
+    id: null,
+  });
+
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // ============================================================
   // MODEL INFORMATION
@@ -153,7 +174,7 @@ function App() {
   // LOGOUT
   // ============================================================
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
 
@@ -164,8 +185,10 @@ function App() {
     setResult(null);
     setText("");
 
+    setMobileMenuOpen(false);
+
     setError("You have been logged out.");
-  };
+  }, []);
 
   // ============================================================
   // VERIFY EXISTING TOKEN
@@ -325,17 +348,7 @@ function App() {
     setAuthError("");
     setAuthMessage("");
     setShowAuth(true);
-  };
-
-  // ============================================================
-  // OPEN REGISTER
-  // ============================================================
-
-  const openRegister = () => {
-    setAuthMode("register");
-    setAuthError("");
-    setAuthMessage("");
-    setShowAuth(true);
+    setMobileMenuOpen(false);
   };
 
   // ============================================================
@@ -356,46 +369,49 @@ function App() {
   // LOAD HISTORY
   // ============================================================
 
-  const loadHistory = async (providedToken = null) => {
-    const activeToken =
-      providedToken || token || localStorage.getItem(TOKEN_KEY);
+  const loadHistory = useCallback(
+    async (providedToken = null) => {
+      const activeToken =
+        providedToken || token || localStorage.getItem(TOKEN_KEY);
 
-    if (!activeToken) {
-      setHistory([]);
-      setHistoryLoading(false);
-      return;
-    }
-
-    try {
-      setHistoryLoading(true);
-
-      const response = await fetch(`${API_BASE_URL}/history`, {
-        headers: {
-          Authorization: `Bearer ${activeToken}`,
-        },
-      });
-
-      if (response.status === 401) {
-        handleLogout();
+      if (!activeToken) {
+        setHistory([]);
+        setHistoryLoading(false);
         return;
       }
 
-      if (!response.ok) {
-        throw new Error("Failed to load history");
+      try {
+        setHistoryLoading(true);
+
+        const response = await fetch(`${API_BASE_URL}/history`, {
+          headers: {
+            Authorization: `Bearer ${activeToken}`,
+          },
+        });
+
+        if (response.status === 401) {
+          handleLogout();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to load history");
+        }
+
+        const data = await response.json();
+
+        setHistory(data.history || []);
+        setError("");
+      } catch (err) {
+        console.error("History loading error:", err);
+
+        setError("Unable to load prediction history from the server.");
+      } finally {
+        setHistoryLoading(false);
       }
-
-      const data = await response.json();
-
-      setHistory(data.history || []);
-      setError("");
-    } catch (err) {
-      console.error("History loading error:", err);
-
-      setError("Unable to load prediction history from the server.");
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
+    },
+    [handleLogout, token],
+  );
 
   // ============================================================
   // INITIAL SESSION
@@ -413,7 +429,7 @@ function App() {
     if (isAuthenticated) {
       loadHistory();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, loadHistory]);
 
   // ============================================================
   // ANALYZE TEXT
@@ -422,6 +438,7 @@ function App() {
   const handleAnalyze = async () => {
     if (!isAuthenticated) {
       setError("Please login before analyzing text.");
+
       openLogin();
       return;
     }
@@ -449,7 +466,9 @@ function App() {
 
       if (response.status === 401) {
         handleLogout();
+
         setError("Your session has expired. Please login again.");
+
         return;
       }
 
@@ -461,6 +480,7 @@ function App() {
 
       if (data.prediction === -1) {
         setError("Please enter some valid text before analyzing.");
+
         return;
       }
 
@@ -514,10 +534,10 @@ function App() {
   };
 
   // ============================================================
-  // CLEAR ALL HISTORY
+  // REQUEST CLEAR ALL HISTORY
   // ============================================================
 
-  const clearHistory = async () => {
+  const clearHistory = () => {
     if (!isAuthenticated) {
       openLogin();
       return;
@@ -527,46 +547,143 @@ function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      "Are you sure you want to permanently delete all prediction history?",
-    );
+    setDeleteModal({
+      open: true,
+      type: "all",
+      id: null,
+    });
+  };
 
-    if (!confirmed) {
+  // ============================================================
+  // REQUEST DELETE SINGLE HISTORY ITEM
+  // ============================================================
+
+  const requestDeleteHistoryItem = (id) => {
+    if (!isAuthenticated) {
+      openLogin();
       return;
     }
 
+    setDeleteModal({
+      open: true,
+      type: "single",
+      id,
+    });
+  };
+
+  // ============================================================
+  // CLOSE DELETE MODAL
+  // ============================================================
+
+  const closeDeleteModal = () => {
+    if (deleteLoading) {
+      return;
+    }
+
+    setDeleteModal({
+      open: false,
+      type: null,
+      id: null,
+    });
+  };
+
+  // ============================================================
+  // CONFIRM DELETE ACTION
+  // ============================================================
+
+  const confirmDeleteAction = async () => {
+    if (!deleteModal.open) {
+      return;
+    }
+
+    setDeleteLoading(true);
+    setError("");
+
     try {
-      setError("");
+      // --------------------------------------------------------
+      // DELETE ALL HISTORY
+      // --------------------------------------------------------
 
-      const response = await fetch(`${API_BASE_URL}/history`, {
-        method: "DELETE",
-        headers: {
-          ...getAuthHeaders(),
-        },
-      });
+      if (deleteModal.type === "all") {
+        const response = await fetch(`${API_BASE_URL}/history`, {
+          method: "DELETE",
+          headers: {
+            ...getAuthHeaders(),
+          },
+        });
 
-      if (response.status === 401) {
-        handleLogout();
+        if (response.status === 401) {
+          handleLogout();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to clear history");
+        }
+
+        setHistory([]);
+
+        setDeleteModal({
+          open: false,
+          type: null,
+          id: null,
+        });
+
         return;
       }
 
-      if (!response.ok) {
-        throw new Error("Failed to clear history");
+      // --------------------------------------------------------
+      // DELETE SINGLE HISTORY ITEM
+      // --------------------------------------------------------
+
+      if (deleteModal.type === "single") {
+        const response = await fetch(
+          `${API_BASE_URL}/history/${deleteModal.id}`,
+          {
+            method: "DELETE",
+            headers: {
+              ...getAuthHeaders(),
+            },
+          },
+        );
+
+        if (response.status === 401) {
+          handleLogout();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to delete history item");
+        }
+
+        setHistory((previousHistory) =>
+          previousHistory.filter((item) => item.id !== deleteModal.id),
+        );
+
+        setDeleteModal({
+          open: false,
+          type: null,
+          id: null,
+        });
       }
-
-      setHistory([]);
     } catch (err) {
-      console.error("Clear history error:", err);
+      console.error("Delete history error:", err);
 
-      setError("Unable to clear prediction history from the server.");
+      setError(
+        deleteModal.type === "all"
+          ? "Unable to clear prediction history from the server."
+          : "Unable to delete this prediction from the server.",
+      );
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
   // ============================================================
-  // USE HISTORY ITEM
+  // APPLY HISTORY ITEM
   // ============================================================
 
-  const useHistoryItem = (item) => {
+  const applyHistoryItem = (item) => {
     setText(item.text);
 
     setSelectedModel(item.dataset === "LIAR Dataset" ? "liar" : "welfake");
@@ -578,43 +695,6 @@ function App() {
       top: 0,
       behavior: "smooth",
     });
-  };
-
-  // ============================================================
-  // DELETE SINGLE HISTORY ITEM
-  // ============================================================
-
-  const deleteHistoryItem = async (id) => {
-    if (!isAuthenticated) {
-      openLogin();
-      return;
-    }
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/history/${id}`, {
-        method: "DELETE",
-        headers: {
-          ...getAuthHeaders(),
-        },
-      });
-
-      if (response.status === 401) {
-        handleLogout();
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error("Failed to delete history item");
-      }
-
-      setHistory((previousHistory) =>
-        previousHistory.filter((item) => item.id !== id),
-      );
-    } catch (err) {
-      console.error("Delete history error:", err);
-
-      setError("Unable to delete this prediction from the server.");
-    }
   };
 
   // ============================================================
@@ -640,80 +720,83 @@ function App() {
       ====================================================== */}
 
       <nav className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
-          {/* LOGO */}
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="flex h-18 items-center justify-between">
+            {/* LOGO */}
 
-          <a href="#" className="flex min-w-0 items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="VeriSense"
-              className="h-10 w-10 shrink-0 rounded-full object-contain overflow-hidden"
-            />
+            <a
+              href="#"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex min-w-0 items-center gap-3"
+            >
+              <img
+                src="/logo.png"
+                alt="VeriSense"
+                className="h-10 w-10 shrink-0 rounded-full object-contain"
+              />
 
-            <div className="min-w-0">
-              <span className="block text-lg font-bold tracking-tight">
-                <span className="text-white">Veri</span>
-                <span className="text-blue-400">Sense</span>
-              </span>
+              <div className="min-w-0">
+                <span className="block text-lg font-bold tracking-tight">
+                  <span className="text-white">Veri</span>
+                  <span className="text-blue-400">Sense</span>
+                </span>
 
-              <span className="hidden text-[10px] uppercase tracking-[0.2em] text-slate-500 sm:block">
-                NLP · Detect · Verify
-              </span>
+                <span className="hidden text-[10px] uppercase tracking-[0.2em] text-slate-500 sm:block">
+                  NLP · Detect · Verify
+                </span>
+              </div>
+            </a>
+
+            {/* DESKTOP NAVIGATION */}
+
+            <div className="hidden items-center gap-7 text-sm text-slate-400 lg:flex">
+              <a href="#analyze" className="transition hover:text-white">
+                Analyze
+              </a>
+
+              <a href="#history" className="transition hover:text-white">
+                History
+              </a>
+
+              <a href="#performance" className="transition hover:text-white">
+                Performance
+              </a>
+
+              <a href="#how-it-works" className="transition hover:text-white">
+                How It Works
+              </a>
+
+              <a href="#about" className="transition hover:text-white">
+                About
+              </a>
             </div>
-          </a>
 
-          {/* NAVIGATION */}
+            {/* RIGHT SIDE */}
 
-          <div className="hidden items-center gap-7 text-sm text-slate-400 lg:flex">
-            <a href="#analyze" className="transition hover:text-white">
-              Analyze
-            </a>
+            <div className="flex items-center gap-2">
+              {/* USER */}
 
-            <a href="#history" className="transition hover:text-white">
-              History
-            </a>
-
-            <a href="#performance" className="transition hover:text-white">
-              Performance
-            </a>
-
-            <a href="#how-it-works" className="transition hover:text-white">
-              How It Works
-            </a>
-
-            <a href="#about" className="transition hover:text-white">
-              About
-            </a>
-          </div>
-
-          {/* AUTH / SYSTEM */}
-
-          <div className="flex items-center gap-2">
-            {isAuthenticated ? (
-              <>
-                {/* USER */}
-
+              {isAuthenticated && (
                 <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300 xl:flex">
                   <User size={13} className="text-blue-400" />
 
                   <span className="max-w-35 truncate">{user?.email}</span>
                 </div>
+              )}
 
-                {/* LOGOUT */}
+              {/* LOGIN / LOGOUT */}
 
+              {isAuthenticated ? (
                 <button
                   type="button"
                   onClick={handleLogout}
                   className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-400 transition hover:border-red-400/30 hover:text-red-400"
                 >
                   <LogOut size={14} />
+
                   <span className="hidden sm:inline">Logout</span>
                 </button>
-              </>
-            ) : (
-              <>
-                {/* LOGIN */}
-
+              ) : (
                 <button
                   type="button"
                   onClick={openLogin}
@@ -722,16 +805,87 @@ function App() {
                   <LogIn size={14} />
                   Login
                 </button>
-              </>
-            )}
+              )}
 
-            {/* SYSTEM */}
+              {/* SYSTEM STATUS */}
 
-            <div className="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-400 sm:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              System Ready
+              <div className="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-400 sm:flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                System Ready
+              </div>
+
+              {/* MOBILE MENU BUTTON */}
+
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((previous) => !previous)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-400 transition hover:border-blue-400/20 hover:text-white lg:hidden"
+                aria-label="Toggle navigation menu"
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X size={19} /> : <Menu size={19} />}
+              </button>
             </div>
           </div>
+
+          {/* ==================================================
+              MOBILE NAVIGATION
+          ================================================== */}
+
+          {mobileMenuOpen && (
+            <div className="border-t border-white/10 py-4 lg:hidden">
+              <div className="space-y-1">
+                {[
+                  ["Analyze", "#analyze"],
+                  ["History", "#history"],
+                  ["Performance", "#performance"],
+                  ["How It Works", "#how-it-works"],
+                  ["About", "#about"],
+                ].map(([label, href]) => (
+                  <a
+                    key={href}
+                    href={href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center justify-between rounded-xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+                  >
+                    <span>{label}</span>
+
+                    <ChevronRight size={15} />
+                  </a>
+                ))}
+              </div>
+
+              {/* MOBILE USER INFO */}
+
+              {isAuthenticated && (
+                <div className="mt-3 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+                    <User size={16} />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-600">
+                      Signed in as
+                    </p>
+
+                    <p className="truncate text-xs text-slate-300">
+                      {user?.email}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* MOBILE SYSTEM STATUS */}
+
+              <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-400/10 bg-emerald-400/5 px-4 py-3 text-xs text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                System Ready
+                <span className="ml-auto text-[10px] text-emerald-400/50">
+                  Online
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -770,6 +924,8 @@ function App() {
         <section id="analyze" className="scroll-mt-24 px-4 pb-24 sm:px-6">
           <div className="mx-auto max-w-4xl">
             <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/30 backdrop-blur-xl">
+              {/* ANALYZER HEADER */}
+
               <div className="border-b border-white/10 px-5 py-5 sm:px-8">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -819,6 +975,8 @@ function App() {
                   </div>
                 </div>
               </div>
+
+              {/* ANALYZER BODY */}
 
               <div className="p-5 sm:p-8">
                 <div className="relative">
@@ -882,6 +1040,8 @@ function App() {
                   )}
                 </button>
 
+                {/* EXAMPLES */}
+
                 <div className="mt-8">
                   <div className="mb-3 flex items-center gap-2">
                     <FileText size={14} className="text-slate-500" />
@@ -912,9 +1072,7 @@ function App() {
               </div>
             </div>
 
-            {/* ==================================================
-                ERROR
-            ================================================== */}
+            {/* ERROR */}
 
             {error && (
               <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-400/5 p-5 text-sm text-red-300">
@@ -975,7 +1133,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="min-w-37.5 rounded-2xl border border-white/10 bg-slate-950/70 px-5 py-4 text-center">
+                  <div className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-5 py-4 text-center sm:min-w-37.5 sm:w-auto">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                       Confidence
                     </p>
@@ -989,6 +1147,8 @@ function App() {
                     </p>
                   </div>
                 </div>
+
+                {/* MODEL */}
 
                 <div className="mt-6 rounded-xl border border-blue-400/10 bg-blue-400/3 p-4">
                   <div className="flex items-center gap-2">
@@ -1007,6 +1167,8 @@ function App() {
                     {currentModel.description}
                   </p>
                 </div>
+
+                {/* CONFIDENCE BAR */}
 
                 <div className="mt-6">
                   <div className="mb-2 flex items-center justify-between">
@@ -1036,6 +1198,8 @@ function App() {
                 </div>
 
                 <div className="my-6 h-px bg-white/10" />
+
+                {/* MODEL DETAILS */}
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl border border-white/5 bg-white/2 p-4">
@@ -1068,6 +1232,8 @@ function App() {
                     </p>
                   </div>
                 </div>
+
+                {/* IMPORTANT NOTE */}
 
                 <div className="mt-5 rounded-xl border border-amber-400/10 bg-amber-400/3 p-4">
                   <p className="text-xs leading-5 text-slate-500">
@@ -1112,6 +1278,8 @@ function App() {
                 )}
               </div>
 
+              {/* LOGIN REQUIRED */}
+
               {!isAuthenticated && (
                 <div className="rounded-2xl border border-dashed border-blue-400/20 bg-blue-400/5 p-10 text-center">
                   <Lock size={28} className="mx-auto text-blue-400" />
@@ -1135,6 +1303,8 @@ function App() {
                 </div>
               )}
 
+              {/* LOADING */}
+
               {isAuthenticated && historyLoading && (
                 <div className="rounded-2xl border border-white/10 bg-white/2 p-10 text-center">
                   <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-blue-400" />
@@ -1144,6 +1314,8 @@ function App() {
                   </p>
                 </div>
               )}
+
+              {/* EMPTY */}
 
               {isAuthenticated && !historyLoading && history.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-white/2 p-10 text-center">
@@ -1159,6 +1331,8 @@ function App() {
                   </p>
                 </div>
               )}
+
+              {/* HISTORY ITEMS */}
 
               {isAuthenticated && !historyLoading && history.length > 0 && (
                 <div className="space-y-3">
@@ -1225,7 +1399,7 @@ function App() {
                             <div className="mt-4 flex flex-wrap items-center gap-4">
                               <button
                                 type="button"
-                                onClick={() => useHistoryItem(item)}
+                                onClick={() => applyHistoryItem(item)}
                                 className="text-xs font-medium text-blue-400 transition hover:text-blue-300"
                               >
                                 Use this text again →
@@ -1233,7 +1407,9 @@ function App() {
 
                               <button
                                 type="button"
-                                onClick={() => deleteHistoryItem(item.id)}
+                                onClick={() =>
+                                  requestDeleteHistoryItem(item.id)
+                                }
                                 className="flex items-center gap-1 text-xs text-slate-600 transition hover:text-red-400"
                               >
                                 <Trash2 size={13} />
@@ -1242,7 +1418,9 @@ function App() {
                             </div>
                           </div>
 
-                          <div className="shrink-0 rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center">
+                          {/* CONFIDENCE */}
+
+                          <div className="w-full shrink-0 rounded-xl border border-white/10 bg-slate-950/70 px-4 py-3 text-center sm:w-auto">
                             <p className="text-[9px] uppercase tracking-wider text-slate-600">
                               Confidence
                             </p>
@@ -1318,6 +1496,7 @@ function App() {
                           <p className="text-[10px] uppercase tracking-wider text-slate-600">
                             Accuracy
                           </p>
+
                           <p className="mt-2 text-2xl font-bold text-blue-400">
                             {model.accuracy}
                           </p>
@@ -1327,6 +1506,7 @@ function App() {
                           <p className="text-[10px] uppercase tracking-wider text-slate-600">
                             Precision
                           </p>
+
                           <p className="mt-2 text-2xl font-bold text-slate-300">
                             {model.precision}
                           </p>
@@ -1336,6 +1516,7 @@ function App() {
                           <p className="text-[10px] uppercase tracking-wider text-slate-600">
                             Recall
                           </p>
+
                           <p className="mt-2 text-2xl font-bold text-slate-300">
                             {model.recall}
                           </p>
@@ -1345,6 +1526,7 @@ function App() {
                           <p className="text-[10px] uppercase tracking-wider text-slate-600">
                             F1 Score
                           </p>
+
                           <p className="mt-2 text-2xl font-bold text-slate-300">
                             {model.f1}
                           </p>
@@ -1413,6 +1595,8 @@ function App() {
             </div>
 
             <div className="grid gap-5 md:grid-cols-3">
+              {/* STEP 1 */}
+
               <div className="group rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20">
                 <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
                   <FileText size={22} />
@@ -1430,6 +1614,8 @@ function App() {
                 </p>
               </div>
 
+              {/* STEP 2 */}
+
               <div className="group rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20">
                 <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
                   <Brain size={22} />
@@ -1446,6 +1632,8 @@ function App() {
                   classification model.
                 </p>
               </div>
+
+              {/* STEP 3 */}
 
               <div className="group rounded-2xl border border-white/10 bg-white/2.5 p-7 transition hover:-translate-y-1 hover:border-blue-400/20">
                 <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
@@ -1473,7 +1661,7 @@ function App() {
 
         <section id="about" className="scroll-mt-24 px-4 py-24 sm:px-6">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-500/10 overflow-hidden">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-blue-500/10">
               <img
                 src="/logo.png"
                 alt="VeriSense"
@@ -1508,7 +1696,7 @@ function App() {
             <img
               src="/logo.png"
               alt="VeriSense"
-              className="h-6 w-6 rounded-full object-contain overflow-hidden"
+              className="h-6 w-6 rounded-full object-contain"
             />
 
             <span>VeriSense</span>
@@ -1692,6 +1880,122 @@ function App() {
                   {authMode === "login" ? "Create one" : "Login"}
                 </button>
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          DELETE CONFIRMATION MODAL
+      ====================================================== */}
+
+      {deleteModal.open && (
+        <div
+          className="fixed inset-0 z-120 flex items-center justify-center bg-black/75 px-4 backdrop-blur-md"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deleteLoading) {
+              closeDeleteModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-2xl shadow-black/50">
+            {/* TOP ACCENT */}
+
+            <div className="h-1 w-full bg-linear-to-r from-red-500 via-orange-400 to-transparent" />
+
+            <div className="p-6 sm:p-7">
+              {/* HEADER */}
+
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-red-400/20 bg-red-400/10 text-red-400">
+                  <Trash2 size={21} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-red-400">
+                        VeriSense
+                      </p>
+
+                      <h2 className="mt-1 text-lg font-bold text-white">
+                        {deleteModal.type === "all"
+                          ? "Clear prediction history?"
+                          : "Delete this prediction?"}
+                      </h2>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={deleteLoading}
+                      onClick={closeDeleteModal}
+                      className="rounded-lg p-2 text-slate-600 transition hover:bg-white/5 hover:text-white disabled:pointer-events-none"
+                      aria-label="Close confirmation"
+                    >
+                      <X size={17} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* MESSAGE */}
+
+              <div className="mt-6 rounded-2xl border border-white/5 bg-white/2.5 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle
+                    size={16}
+                    className="mt-0.5 shrink-0 text-amber-400"
+                  />
+
+                  <p className="text-xs leading-6 text-slate-500">
+                    {deleteModal.type === "all"
+                      ? "This will permanently remove all of your prediction history. This action cannot be undone."
+                      : "This prediction will be permanently removed from your history. This action cannot be undone."}
+                  </p>
+                </div>
+              </div>
+
+              {/* BUTTONS */}
+
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={deleteLoading}
+                  onClick={closeDeleteModal}
+                  className="rounded-xl border border-white/10 px-5 py-3 text-xs font-medium text-slate-400 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  disabled={deleteLoading}
+                  onClick={confirmDeleteAction}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-red-500/90 px-5 py-3 text-xs font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deleteLoading ? (
+                    <>
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+
+                      {deleteModal.type === "all"
+                        ? "Delete All History"
+                        : "Delete Prediction"}
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* SECURITY NOTE */}
+
+              <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-slate-700">
+                <ShieldCheck size={12} />
+                Your prediction data is managed securely.
+              </div>
             </div>
           </div>
         </div>

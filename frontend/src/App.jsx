@@ -20,7 +20,7 @@ import {
   UserPlus,
 } from "lucide-react";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://verisense-backend-2794.onrender.com";
 const TOKEN_KEY = "verisense_access_token";
 const USER_KEY = "verisense_user";
 

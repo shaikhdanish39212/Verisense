@@ -21,6 +21,26 @@ The application also provides a confidence score and stores authenticated users'
 
 ---
 
+## 📚 Table of Contents
+
+- [Key Features](#-key-features)
+- [Machine Learning Models](#-machine-learning-models)
+- [System Architecture](#️-system-architecture)
+- [Technology Stack](#️-technology-stack)
+- [Project Structure](#-project-structure)
+- [Installation and Setup](#️-installation-and-setup)
+- [Production Deployment](#️-production-deployment)
+- [API Endpoints](#-api-endpoints)
+- [Authentication](#-authentication)
+- [Prediction Workflow](#-prediction-workflow)
+- [Model Performance](#-model-performance)
+- [Prediction History](#️-prediction-history)
+- [Important Limitation](#️-important-limitation)
+- [Future Scope](#-future-scope)
+- [Project Status](#-project-status)
+
+---
+
 ## 🚀 Key Features
 
 - User Registration and Login
@@ -38,8 +58,6 @@ The application also provides a confidence score and stores authenticated users'
 - Authentication-protected Prediction APIs
 - User-specific Prediction History
 - Secure Password Hashing
-- Backend health checks and CORS configuration
-- Environment-based deployment settings
 
 ---
 
@@ -47,27 +65,27 @@ The application also provides a confidence score and stores authenticated users'
 
 ### 1. WELFake — Hybrid SVM
 
-| Metric    |          Result |
-| --------- | --------------: |
-| Dataset   | WELFake Dataset |
-| Model     |      Hybrid SVM |
-| Accuracy  |          98.65% |
-| Precision |          98.16% |
-| Recall    |          98.85% |
-| F1 Score  |          98.51% |
+| Metric | Result |
+|---|---:|
+| Dataset | WELFake Dataset |
+| Model | Hybrid SVM |
+| Accuracy | 98.65% |
+| Precision | 98.16% |
+| Recall | 98.85% |
+| F1 Score | 98.51% |
 
 The WELFake model is designed primarily for news articles and general textual content classification.
 
 ### 2. LIAR — SVM
 
-| Metric    |       Result |
-| --------- | -----------: |
-| Dataset   | LIAR Dataset |
-| Model     |          SVM |
-| Accuracy  |       61.17% |
-| Precision |       61.73% |
-| Recall    |       81.79% |
-| F1 Score  |       70.36% |
+| Metric | Result |
+|---|---:|
+| Dataset | LIAR Dataset |
+| Model | SVM |
+| Accuracy | 61.17% |
+| Precision | 61.73% |
+| Recall | 81.79% |
+| F1 Score | 70.36% |
 
 The LIAR model is designed primarily for political claim classification.
 
@@ -307,19 +325,20 @@ http://localhost:5173
 
 ---
 
+
 ---
 
 # ☁️ Production Deployment
 
 The current production version of VeriSense is deployed using:
 
-| Component      | Platform                      |
-| -------------- | ----------------------------- |
-| Frontend       | Vercel                        |
-| Backend        | Render                        |
-| Database       | Neon PostgreSQL               |
-| Authentication | JWT                           |
-| ML Models      | WELFake Hybrid SVM + LIAR SVM |
+| Component | Platform |
+|---|---|
+| Frontend | Vercel |
+| Backend | Render |
+| Database | Neon PostgreSQL |
+| Authentication | JWT |
+| ML Models | WELFake Hybrid SVM + LIAR SVM |
 
 ### Production Flow
 
@@ -353,18 +372,18 @@ The production application has been tested for registration, login, logout, pred
 
 # 🔌 API Endpoints
 
-| Method | Endpoint        | Authentication | Purpose                       |
-| ------ | --------------- | -------------- | ----------------------------- |
-| GET    | `/`             | No             | API status                    |
-| GET    | `/health`       | No             | Health check                  |
-| POST   | `/register`     | No             | Create a user account         |
-| POST   | `/login`        | No             | Authenticate a user           |
-| GET    | `/me`           | Yes            | Get current user              |
-| POST   | `/predict`      | Yes            | WELFake prediction            |
-| POST   | `/predict-liar` | Yes            | LIAR prediction               |
-| GET    | `/history`      | Yes            | Get user's prediction history |
-| DELETE | `/history/{id}` | Yes            | Delete one history record     |
-| DELETE | `/history`      | Yes            | Delete all user history       |
+| Method | Endpoint | Authentication | Purpose |
+|---|---|---|---|
+| GET | `/` | No | API status |
+| GET | `/health` | No | Health check |
+| POST | `/register` | No | Create a user account |
+| POST | `/login` | No | Authenticate a user |
+| GET | `/me` | Yes | Get current user |
+| POST | `/predict` | Yes | WELFake prediction |
+| POST | `/predict-liar` | Yes | LIAR prediction |
+| GET | `/history` | Yes | Get user's prediction history |
+| DELETE | `/history/{id}` | Yes | Delete one history record |
+| DELETE | `/history` | Yes | Delete all user history |
 
 ---
 
@@ -900,11 +919,12 @@ The project provides an end-to-end implementation where machine learning models 
 
 ---
 
+
 ---
 
 # 🏁 Project Status
 
-**Production Deployed ✅**
+**Production Deployed and Tested ✅**
 
 The current live version has been tested for:
 
@@ -930,4 +950,4 @@ This project is developed for academic and educational purposes.
 
 **NLP · Detect · Verify**
 
-_Misinformation Detection using Natural Language Processing_
+*Misinformation Detection using Natural Language Processing*
